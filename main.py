@@ -1,38 +1,6 @@
-# ==============================================================================
-# REQUERIMIENTOS E INSTALACIÓN AUTOMÁTICA
-# ==============================================================================
-import os
-import subprocess
-import sys
-
-# Crear requirements.txt automáticamente en el proyecto
-requirements_content = """fastapi
-uvicorn
-yfinance
-pandas-ta
-pydantic
-"""
-if not os.path.exists("requirements.txt"):
-  with open("requirements.txt", "w") as f:
-    f.write(requirements_content)
-
-# Verificar e instalar dependencias si no están presentes
-try:
-  import fastapi
-  import pandas_ta
-  import pydantic
-  import uvicorn
-  import yfinance
-except ImportError:
-  print("Instalando dependencias necesarias...")
-  subprocess.check_call(
-      [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
-  )
-
-# ==============================================================================
-# CÓDIGO PRINCIPAL DE LA APLICACIÓN (main.py)
-# ==============================================================================
 import json
+import os
+import sqlite3
 import threading
 import time
 from datetime import datetime
@@ -43,53 +11,79 @@ import pandas_ta as ta
 import uvicorn
 import yfinance as yf
 
-app = FastAPI(title="Trading Monitor & Portfolio System")
+app = FastAPI(title="Trading Monitor Pro - Render Edition")
 
-ARCHIVADOR_JSON = "activos.json"
+DB_FILE = "trading_data.db"
 INTERVALO_SEGUNDOS = 60
 
+
+# --- PERSISTENCIA CON SQLITE (COMPATIBLE CON CLOUD) ---
+def init_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracion (
+            id INTEGER PRIMARY KEY,
+            activos TEXT,
+            cartera TEXT
+        )
+    """)
+  cursor.execute("SELECT COUNT(*) FROM configuracion")
+  if cursor.fetchone()[0] == 0:
+    activos_default = json.dumps(["QQQ", "SPY", "NVDA", "TSLA", "BTC-USD"])
+    cartera_default = json.dumps([])
+    cursor.execute(
+        "INSERT INTO configuracion (id, activos, cartera) VALUES (1, ?, ?)",
+        (activos_default, cartera_default),
+    )
+  conn.commit()
+  conn.close()
+
+
+init_db()
+
 # --- ESTRUCTURA DE DATOS EN MEMORIA ---
-activos_monitoreados = []
-cartera_posiciones = []
 timeframe_actual = "1h"
 estado_mercado = {}
 historial_alertas = []
 
 
-# --- CARGA Y GUARDADO EN ARCHIVO LOCAL (PERSISTENCIA) ---
-def cargar_datos_locales():
-  global activos_monitoreados, cartera_posiciones
-  if os.path.exists(ARCHIVADOR_JSON):
-    try:
-      with open(ARCHIVADOR_JSON, "r") as f:
-        data = json.load(f)
-        activos_monitoreados = data.get(
-            "activos", ["QQQ", "SPY", "NVDA", "TSLA", "BTC-USD"]
-        )
-        cartera_posiciones = data.get("cartera", [])
-    except Exception as e:
-      print(f"Error cargando JSON local: {e}")
-      activos_monitoreados = ["QQQ", "SPY", "NVDA", "TSLA", "BTC-USD"]
-      cartera_posiciones = []
-  else:
-    activos_monitoreados = ["QQQ", "SPY", "NVDA", "TSLA", "BTC-USD"]
-    cartera_posiciones = []
-    guardar_datos_locales()
+def obtener_activos_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("SELECT activos FROM configuracion WHERE id=1")
+  row = cursor.fetchone()
+  conn.close()
+  return json.loads(row[0]) if row else ["QQQ", "SPY", "NVDA", "TSLA", "BTC-USD"]
 
 
-def guardar_datos_locales():
-  try:
-    with open(ARCHIVADOR_JSON, "w") as f:
-      json.dump(
-          {"activos": activos_monitoreados, "cartera": cartera_posiciones},
-          f,
-          indent=4,
-      )
-  except Exception as e:
-    print(f"Error guardando JSON local: {e}")
+def guardar_activos_db(activos):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "UPDATE configuracion SET activos = ? WHERE id=1", (json.dumps(activos),)
+  )
+  conn.commit()
+  conn.close()
 
 
-cargar_datos_locales()
+def obtener_cartera_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("SELECT cartera FROM configuracion WHERE id=1")
+  row = cursor.fetchone()
+  conn.close()
+  return json.loads(row[0]) if row else []
+
+
+def guardar_cartera_db(cartera):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "UPDATE configuracion SET cartera = ? WHERE id=1", (json.dumps(cartera),)
+  )
+  conn.commit()
+  conn.close()
 
 
 # --- MODELOS PYDANTIC ---
@@ -136,9 +130,9 @@ def calcular_risk_score(df):
 
 
 def analizar_mercado():
-  global estado_mercado, historial_alertas, activos_monitoreados, timeframe_actual, cartera_posiciones
+  global estado_mercado, historial_alertas, timeframe_actual
   while True:
-    lista_actual = list(activos_monitoreados)
+    lista_actual = obtener_activos_db()
     tf_local = timeframe_actual
     periodo, intervalo = obtener_config_timeframe(tf_local)
 
@@ -228,7 +222,8 @@ def analizar_mercado():
 
 
 def _evaluar_cartera(symbol, precio_actual, sma9, sma21, hora):
-  global cartera_posiciones
+  cartera_posiciones = obtener_cartera_db()
+  modificado = False
   for pos in cartera_posiciones:
     if pos["ticker"] == symbol:
       p_compra = pos["precio_compra"]
@@ -253,6 +248,10 @@ def _evaluar_cartera(symbol, precio_actual, sma9, sma21, hora):
       pos["pnl_porcentaje"] = round(p_ganancia, 2)
       pos["sl_sugerido"] = sl_sugerido
       pos["estado"] = estado_pos
+      modificado = True
+
+  if modificado:
+    guardar_cartera_db(cartera_posiciones)
 
 
 def _registrar_alerta_si_nueva(symbol, evento, precio, hora):
@@ -284,37 +283,39 @@ def obtener_datos():
   return {
       "mercado": estado_mercado,
       "alertas": historial_alertas,
-      "cartera": cartera_posiciones,
+      "cartera": obtener_cartera_db(),
       "timeframe": timeframe_actual,
   }
 
 
 @app.post("/api/add")
 def agregar_activo(item: TickerModel):
+  activos = obtener_activos_db()
   symbol = item.ticker.strip().upper()
-  if symbol and symbol not in activos_monitoreados:
-    activos_monitoreados.append(symbol)
-    guardar_datos_locales()
+  if symbol and symbol not in activos:
+    activos.append(symbol)
+    guardar_activos_db(activos)
   return {"status": "ok"}
 
 
 @app.post("/api/remove")
 def eliminar_activo(item: TickerModel):
+  activos = obtener_activos_db()
   symbol = item.ticker.strip().upper()
-  if symbol in activos_monitoreados:
-    activos_monitoreados.remove(symbol)
+  if symbol in activos:
+    activos.remove(symbol)
     if symbol in estado_mercado:
       del estado_mercado[symbol]
-    guardar_datos_locales()
+    guardar_activos_db(activos)
   return {"status": "ok"}
 
 
 @app.post("/api/cartera/add")
 def agregar_cartera(item: PosicionModel):
-  global cartera_posiciones
+  cartera = obtener_cartera_db()
   ticker = item.ticker.strip().upper()
-  cartera_posiciones = [p for p in cartera_posiciones if p["ticker"] != ticker]
-  cartera_posiciones.append({
+  cartera = [p for p in cartera if p["ticker"] != ticker]
+  cartera.append({
       "ticker": ticker,
       "precio_compra": item.precio_compra,
       "timeframe": item.timeframe,
@@ -323,16 +324,16 @@ def agregar_cartera(item: PosicionModel):
       "sl_sugerido": round(item.precio_compra * 0.98, 2),
       "estado": "🔵 MANTENER",
   })
-  guardar_datos_locales()
+  guardar_cartera_db(cartera)
   return {"status": "ok"}
 
 
 @app.post("/api/cartera/remove")
 def eliminar_cartera(item: TickerModel):
-  global cartera_posiciones
+  cartera = obtener_cartera_db()
   ticker = item.ticker.strip().upper()
-  cartera_posiciones = [p for p in cartera_posiciones if p["ticker"] != ticker]
-  guardar_datos_locales()
+  cartera = [p for p in cartera if p["ticker"] != ticker]
+  guardar_cartera_db(cartera)
   return {"status": "ok"}
 
 
@@ -354,7 +355,7 @@ def dashboard():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Trading Monitor Pro</title>
+        <title>Trading Monitor Pro (Cloud)</title>
         <style>
             * { box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b132b; color: #f8fafc; margin: 0; padding: 12px; }
@@ -398,7 +399,7 @@ def dashboard():
         </style>
     </head>
     <body>
-        <h1>📊 Trading Monitor Pro</h1>
+        <h1>📊 Trading Monitor Pro (Cloud)</h1>
         
         <div class="control-panel">
             <input type="text" id="new-ticker" placeholder="TICKER" />
@@ -581,4 +582,5 @@ def dashboard():
 
 
 if __name__ == "__main__":
-  uvicorn.run(app, host="0.0.0.0", port=8000)
+  port = int(os.environ.get("PORT", 8000))
+  uvicorn.run(app, host="0.0.0.0", port=port)
