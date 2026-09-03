@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import pandas_ta as ta
+import pandas as pd
 import uvicorn
 import yfinance as yf
 
@@ -17,7 +17,7 @@ DB_FILE = "trading_data.db"
 INTERVALO_SEGUNDOS = 60
 
 
-# --- PERSISTENCIA CON SQLITE (COMPATIBLE CON CLOUD) ---
+# --- PERSISTENCIA CON SQLITE ---
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -156,8 +156,9 @@ def analizar_mercado():
             }).dropna()
 
           if len(df) >= 20:
-            df["SMA_9"] = ta.sma(df["Close"], length=9)
-            df["SMA_21"] = ta.sma(df["Close"], length=21)
+            # INDICADORES TÉCNICOS CALCULADOS CON PANDAS NATIVO
+            df["SMA_9"] = df["Close"].rolling(window=9).mean()
+            df["SMA_21"] = df["Close"].rolling(window=21).mean()
             df["Resistencia"] = df["High"].rolling(window=20).max().shift(1)
             df["Soporte_SL"] = df["Low"].rolling(window=10).min().shift(1)
 
