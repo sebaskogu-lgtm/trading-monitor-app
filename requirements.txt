@@ -2,5 +2,4 @@ fastapi
 uvicorn
 yfinance
 pydantic
-numpy
 pandas
