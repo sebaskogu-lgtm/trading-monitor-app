@@ -34,11 +34,11 @@ except ImportError:
 # ==============================================================================
 import asyncio
 import json
-import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+import urllib.request
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
@@ -48,9 +48,53 @@ import yfinance as yf
 
 app = FastAPI(title="Trading Monitor Pro")
 
-DB_FILE = "trading_data.db"
 INTERVALO_SEGUNDOS = 60
 
+# --- PERSISTENCIA JSONBIN ---
+JSONBIN_KEY = os.environ.get("JSONBIN_KEY", "")
+JSONBIN_ID = os.environ.get("JSONBIN_ID", "")
+
+
+def db_get(campo):
+  if not JSONBIN_KEY or not JSONBIN_ID:
+    return ["QQQ", "SPY", "NVDA", "AAPL"] if campo == "activos" else []
+
+  try:
+    url = f"https://api.jsonbin.io/v3/b/{JSONBIN_ID}/latest"
+    req = urllib.request.Request(url)
+    req.add_header("X-Master-Key", JSONBIN_KEY)
+    with urllib.request.urlopen(req) as response:
+      data = json.loads(response.read().decode())
+      return data.get("record", {}).get(campo, [])
+  except Exception as e:
+    print(f"Error leyendo JSONBin ({campo}):", e)
+    return []
+
+
+def db_set(campo, valor):
+  if not JSONBIN_KEY or not JSONBIN_ID:
+    return
+
+  try:
+    datos_actuales = {
+        "activos": db_get("activos"),
+        "cartera": db_get("cartera"),
+    }
+    datos_actuales[campo] = valor
+
+    url = f"https://api.jsonbin.io/v3/b/{JSONBIN_ID}"
+    req = urllib.request.Request(url, method="PUT")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("X-Master-Key", JSONBIN_KEY)
+
+    payload = json.dumps(datos_actuales).encode("utf-8")
+    with urllib.request.urlopen(req, data=payload) as response:
+      pass
+  except Exception as e:
+    print(f"Error guardando en JSONBin ({campo}):", e)
+
+
+# CATÁLOGO DE TICKERS PARA AUTOCOMPLETADO
 CATALOGO_TICKERS = {
     "AAPL": "Apple Inc. (Tecnología / Consumo)",
     "MSFT": "Microsoft Corporation (Software / Cloud)",
@@ -76,29 +120,7 @@ CATALOGO_TICKERS = {
 
 TICKERS_ESCANER = list(CATALOGO_TICKERS.keys())
 
-
-def init_db():
-  conn = sqlite3.connect(DB_FILE)
-  cursor = conn.cursor()
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS configuracion (
-            id INTEGER PRIMARY KEY,
-            activos TEXT,
-            cartera TEXT
-        )
-    """)
-  cursor.execute("SELECT COUNT(*) FROM configuracion")
-  if cursor.fetchone()[0] == 0:
-    cursor.execute(
-        "INSERT INTO configuracion (id, activos, cartera) VALUES (1, ?, ?)",
-        (json.dumps(["QQQ", "SPY", "NVDA", "AAPL"]), json.dumps([])),
-    )
-  conn.commit()
-  conn.close()
-
-
-init_db()
-
+# --- ESTADO EN MEMORIA Y CACHÉ TTL ---
 timeframe_actual = "1h"
 estado_mercado = {}
 historial_alertas = []
@@ -107,25 +129,7 @@ cache_yf = {}
 SSE_SUBSCRIBERS = []
 
 
-def db_get(campo):
-  conn = sqlite3.connect(DB_FILE)
-  cursor = conn.cursor()
-  cursor.execute(f"SELECT {campo} FROM configuracion WHERE id=1")
-  row = cursor.fetchone()
-  conn.close()
-  return json.loads(row[0]) if row else []
-
-
-def db_set(campo, valor):
-  conn = sqlite3.connect(DB_FILE)
-  cursor = conn.cursor()
-  cursor.execute(
-      f"UPDATE configuracion SET {campo} = ? WHERE id=1", (json.dumps(valor),)
-  )
-  conn.commit()
-  conn.close()
-
-
+# --- MODELOS ---
 class TimeframeModel(BaseModel):
   timeframe: str
 
@@ -135,9 +139,11 @@ class PosicionModel(BaseModel):
   precio_compra: float
   sl_usuario: float
   tp_usuario: float
+  riesgo_usd: float
   timeframe: str
 
 
+# --- HORARIO NYSE ---
 def obtener_info_horario():
   ny_tz = pytz.timezone("America/New_York")
   ny_time = datetime.now(ny_tz)
@@ -188,6 +194,7 @@ def obtener_info_horario():
     return "🟢 ABIERTO (NYSE)", f"Cierra en {h}h {m}m"
 
 
+# --- MOTOR DE ANÁLISIS ---
 def obtener_config_tf(tf: str):
   if tf == "4h":
     return "60d", "60m"
@@ -370,7 +377,6 @@ def _evaluar_cartera(
     if pos["ticker"] == symbol:
       p_compra = pos["precio_compra"]
       sl_user = pos["sl_usuario"]
-      tp_user = pos["tp_usuario"]
 
       p_ganancia = ((precio_actual - p_compra) / p_compra) * 100
       estado_pos = "🔵 MANTENER"
@@ -427,6 +433,7 @@ def notificar_suscriptores():
       pass
 
 
+# --- API ---
 @app.get("/api/data")
 def obtener_datos():
   estado, cuenta_reg = obtener_info_horario()
@@ -479,9 +486,14 @@ async def agregar_activo(request: Request):
     if symbol not in activos:
       activos.append(symbol)
       db_set("activos", activos)
-      threading.Thread(
-          target=lambda: procesar_ticker(symbol, timeframe_actual), daemon=True
-      ).start()
+
+      def _fetch_and_update():
+        res = procesar_ticker(symbol, timeframe_actual)
+        if res:
+          estado_mercado[symbol] = res
+          notificar_suscriptores()
+
+      threading.Thread(target=_fetch_and_update, daemon=True).start()
   return {"status": "ok"}
 
 
@@ -491,7 +503,7 @@ async def eliminar_activo(request: Request):
     data = await request.json()
     symbol = data.get("ticker", "").strip().upper()
   except Exception:
-    symbol = ""
+    ticker = ""
 
   if symbol:
     activos = db_get("activos")
@@ -507,12 +519,23 @@ async def eliminar_activo(request: Request):
 def agregar_cartera(item: PosicionModel):
   cartera = db_get("cartera")
   ticker = item.ticker.strip().upper()
+
+  # Calculadora de tamaño de posición por riesgo fijo
+  distancia_sl = abs(item.precio_compra - item.sl_usuario)
+  acciones_sugeridas = (
+      round(item.riesgo_usd / distancia_sl, 2) if distancia_sl > 0 else 0
+  )
+  inversion_total = round(acciones_sugeridas * item.precio_compra, 2)
+
   cartera = [p for p in cartera if p["ticker"] != ticker]
   cartera.append({
       "ticker": ticker,
       "precio_compra": item.precio_compra,
       "sl_usuario": item.sl_usuario,
       "tp_usuario": item.tp_usuario,
+      "riesgo_usd": item.riesgo_usd,
+      "acciones": acciones_sugeridas,
+      "inversion_total": inversion_total,
       "timeframe": item.timeframe,
       "precio_actual": item.precio_compra,
       "pnl_porcentaje": 0.0,
@@ -547,6 +570,7 @@ def cambiar_timeframe(item: TimeframeModel):
   return {"status": "ok"}
 
 
+# --- FRONTEND HTML ---
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
   return """
@@ -596,7 +620,7 @@ def dashboard():
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
             
             .feed-panel, .cartera-panel, .edu-panel { background: #1c2541; border-radius: 10px; padding: 14px; border: 1px solid #3a506b; margin-bottom: 16px; }
-            .feed-title { font-size: 1rem; color: #38bdf8; margin-bottom: 10px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
+            .feed-title { font-size: 1rem; color: #38bdf8; margin-bottom: 10px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
             .alerta-item { background: #0b132b; border-left: 4px solid #38bdf8; padding: 8px; margin-bottom: 6px; border-radius: 4px; }
             
             .links-externos { display: flex; gap: 6px; margin-top: 8px; justify-content: center; font-size: 0.75rem; }
@@ -605,6 +629,7 @@ def dashboard():
 
             .edu-text { font-size: 0.82rem; color: #cbd5e1; line-height: 1.4; }
             .edu-text ul { padding-left: 16px; margin: 6px 0; }
+            .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
         </style>
     </head>
     <body>
@@ -630,12 +655,21 @@ def dashboard():
         <div class="container">
             <div>
                 <div class="cartera-panel">
-                    <div class="feed-title">💼 Mi Cartera y Gestión de Riesgo</div>
+                    <div class="feed-title">
+                        <span>💼 Mi Cartera y Gestión de Riesgo</span>
+                    </div>
+                    
+                    <div class="metrics-bar" id="resumen-cartera">
+                        <span>Capital Expuesto: <b>$0.00</b></span>
+                        <span>Rendimiento Global: <b>0.00%</b></span>
+                    </div>
+
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
                         <input type="text" id="c-ticker" placeholder="Activo" style="width:70px;" />
-                        <input type="number" id="c-precio" placeholder="Entrada $" style="width:90px;" step="any" />
-                        <input type="number" id="c-sl" placeholder="Tu SL $" style="width:90px;" step="any" />
-                        <input type="number" id="c-tp" placeholder="Tu TP $" style="width:90px;" step="any" />
+                        <input type="number" id="c-precio" placeholder="Entrada $" style="width:85px;" step="any" />
+                        <input type="number" id="c-sl" placeholder="Tu SL $" style="width:85px;" step="any" />
+                        <input type="number" id="c-tp" placeholder="Tu TP $" style="width:85px;" step="any" />
+                        <input type="number" id="c-riesgo" placeholder="Riesgo $" style="width:80px;" value="50" step="any" title="Dinero máximo a perder en la operación" />
                         <button onclick="registrarPosicion()">Guardar Posición</button>
                     </div>
                     <div id="lista-cartera">Sin posiciones guardadas.</div>
@@ -738,12 +772,13 @@ def dashboard():
                 const precio = parseFloat(document.getElementById('c-precio').value);
                 const sl = parseFloat(document.getElementById('c-sl').value);
                 const tp = parseFloat(document.getElementById('c-tp').value);
+                const riesgo = parseFloat(document.getElementById('c-riesgo').value) || 50;
                 const tf = document.getElementById('select-tf').value;
                 if (!ticker || isNaN(precio) || isNaN(sl) || isNaN(tp)) return;
 
                 await fetch('/api/cartera/add', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ticker: ticker, precio_compra: precio, sl_usuario: sl, tp_usuario: tp, timeframe: tf })
+                    body: JSON.stringify({ ticker: ticker, precio_compra: precio, sl_usuario: sl, tp_usuario: tp, riesgo_usd: riesgo, timeframe: tf })
                 });
                 document.getElementById('c-ticker').value = '';
                 document.getElementById('c-precio').value = '';
@@ -783,10 +818,17 @@ def dashboard():
                     cuentaEl.innerHTML = cuenta_regresiva;
                     relojEl.style.color = (horario.includes("CERRADO") || horario.includes("PRE-CIERRE")) ? '#f87171' : '#4ade80';
 
+                    // Rendimiento general de cartera
+                    let capitalTotal = 0;
+                    let pnlSuma = 0;
+
                     const divCartera = document.getElementById('lista-cartera');
                     if (cartera.length > 0) {
                         divCartera.innerHTML = '';
                         cartera.forEach(p => {
+                            capitalTotal += p.inversion_total || 0;
+                            pnlSuma += p.pnl_porcentaje || 0;
+
                             const pnlColor = p.pnl_porcentaje >= 0 ? '#4ade80' : '#f87171';
                             const slColor = p.analisis_sl.includes("Correcto") ? '#4ade80' : '#f87171';
                             divCartera.innerHTML += `
@@ -796,13 +838,26 @@ def dashboard():
                                         <span style="color:${pnlColor};">${p.pnl_porcentaje >= 0 ? '+' : ''}${p.pnl_porcentaje}%</span>
                                         <button onclick="eliminarPosicion('${p.ticker}')" style="background:none;color:#ef4444;border:none;cursor:pointer;">✕</button>
                                     </div>
-                                    <div style="font-size:0.8rem; margin-top:4px;">Compra: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
+                                    <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
+                                    <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Comprar: ${p.acciones || 0} acciones ($${p.inversion_total || 0} expuestos)</div>
                                     <div style="font-size:0.8rem; margin-top:2px;">Estado: ${p.estado}</div>
                                     <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};">Gestión SL: ${p.analisis_sl} (Tu SL: $${p.sl_usuario})</div>
                                 </div>
                             `;
                         });
-                    } else { divCartera.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>'; }
+
+                        const pnlPromedio = (pnlSuma / cartera.length).toFixed(2);
+                        document.getElementById('resumen-cartera').innerHTML = `
+                            <span>Capital Expuesto: <b>$${capitalTotal.toFixed(2)}</b></span>
+                            <span>Rendimiento Global: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>
+                        `;
+                    } else { 
+                        divCartera.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>';
+                        document.getElementById('resumen-cartera').innerHTML = `
+                            <span>Capital Expuesto: <b>$0.00</b></span>
+                            <span>Rendimiento Global: <b>0.00%</b></span>
+                        `;
+                    }
 
                     const divSug = document.getElementById('lista-sugerencias');
                     if(sugerencias && sugerencias.length > 0) {
