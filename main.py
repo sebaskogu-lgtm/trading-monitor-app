@@ -50,9 +50,9 @@ app = FastAPI(title="Trading Monitor Pro")
 
 INTERVALO_SEGUNDOS = 60
 
-# --- PERSISTENCIA JSONBIN ---
-JSONBIN_KEY = os.environ.get("JSONBIN_KEY", "")
-JSONBIN_ID = os.environ.get("JSONBIN_ID", "")
+# --- PERSISTENCIA JSONBIN (CON FIX DUAL HEADER Y STRIP) ---
+JSONBIN_KEY = os.environ.get("JSONBIN_KEY", "").strip()
+JSONBIN_ID = os.environ.get("JSONBIN_ID", "").strip()
 
 
 def db_get(campo):
@@ -63,12 +63,14 @@ def db_get(campo):
     url = f"https://api.jsonbin.io/v3/b/{JSONBIN_ID}/latest"
     req = urllib.request.Request(url)
     req.add_header("X-Master-Key", JSONBIN_KEY)
+    req.add_header("X-Access-Key", JSONBIN_KEY)
+
     with urllib.request.urlopen(req) as response:
       data = json.loads(response.read().decode())
       return data.get("record", {}).get(campo, [])
   except Exception as e:
     print(f"Error leyendo JSONBin ({campo}):", e)
-    return []
+    return ["QQQ", "SPY", "NVDA", "AAPL"] if campo == "activos" else []
 
 
 def db_set(campo, valor):
@@ -86,6 +88,7 @@ def db_set(campo, valor):
     req = urllib.request.Request(url, method="PUT")
     req.add_header("Content-Type", "application/json")
     req.add_header("X-Master-Key", JSONBIN_KEY)
+    req.add_header("X-Access-Key", JSONBIN_KEY)
 
     payload = json.dumps(datos_actuales).encode("utf-8")
     with urllib.request.urlopen(req, data=payload) as response:
@@ -94,7 +97,7 @@ def db_set(campo, valor):
     print(f"Error guardando en JSONBin ({campo}):", e)
 
 
-# CATÁLOGO DE TICKERS PARA AUTOCOMPLETADO
+# CATÁLOGO DE TICKERS
 CATALOGO_TICKERS = {
     "AAPL": "Apple Inc. (Tecnología / Consumo)",
     "MSFT": "Microsoft Corporation (Software / Cloud)",
@@ -449,6 +452,20 @@ def obtener_datos():
   }
 
 
+@app.get("/api/test-jsonbin")
+def probar_jsonbin():
+  activos = db_get("activos")
+  cartera = db_get("cartera")
+  return {
+      "estado_configuracion": {
+          "has_key": bool(JSONBIN_KEY),
+          "has_id": bool(JSONBIN_ID),
+          "bin_id_usado": JSONBIN_ID if JSONBIN_ID else "NO CONFIGURADO",
+      },
+      "datos_recuperados": {"activos": activos, "cartera": cartera},
+  }
+
+
 @app.get("/api/stream")
 async def stream_endpoint(request: Request):
   q = asyncio.Queue()
@@ -503,7 +520,7 @@ async def eliminar_activo(request: Request):
     data = await request.json()
     symbol = data.get("ticker", "").strip().upper()
   except Exception:
-    ticker = ""
+    symbol = ""
 
   if symbol:
     activos = db_get("activos")
@@ -520,7 +537,6 @@ def agregar_cartera(item: PosicionModel):
   cartera = db_get("cartera")
   ticker = item.ticker.strip().upper()
 
-  # Calculadora de tamaño de posición por riesgo fijo
   distancia_sl = abs(item.precio_compra - item.sl_usuario)
   acciones_sugeridas = (
       round(item.riesgo_usd / distancia_sl, 2) if distancia_sl > 0 else 0
@@ -818,7 +834,6 @@ def dashboard():
                     cuentaEl.innerHTML = cuenta_regresiva;
                     relojEl.style.color = (horario.includes("CERRADO") || horario.includes("PRE-CIERRE")) ? '#f87171' : '#4ade80';
 
-                    // Rendimiento general de cartera
                     let capitalTotal = 0;
                     let pnlSuma = 0;
 
