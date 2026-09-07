@@ -49,9 +49,8 @@ import yfinance as yf
 app = FastAPI(title="Trading Monitor Pro")
 
 DB_FILE = "trading_data.db"
-INTERVALO_SEGUNDOS = 30  # Actualización más fluida
+INTERVALO_SEGUNDOS = 60
 
-# Catálogo ampliado para autocompletado predictivo
 CATALOGO_TICKERS = {
     "AAPL": "Apple Inc. (Tecnología / Consumo)",
     "MSFT": "Microsoft Corporation (Software / Cloud)",
@@ -77,8 +76,6 @@ CATALOGO_TICKERS = {
 
 TICKERS_ESCANER = list(CATALOGO_TICKERS.keys())
 
-# --- PERSISTENCIA SQLITE ---
-
 
 def init_db():
   conn = sqlite3.connect(DB_FILE)
@@ -102,12 +99,11 @@ def init_db():
 
 init_db()
 
-# --- ESTADO EN MEMORIA Y CACHÉ TTL ---
 timeframe_actual = "1h"
 estado_mercado = {}
 historial_alertas = []
 recomendaciones_escaner = []
-cache_yf = {}  # { (symbol, tf): (timestamp, datos_procesados) }
+cache_yf = {}
 SSE_SUBSCRIBERS = []
 
 
@@ -130,7 +126,6 @@ def db_set(campo, valor):
   conn.close()
 
 
-# --- MODELOS ---
 class TimeframeModel(BaseModel):
   timeframe: str
 
@@ -143,14 +138,11 @@ class PosicionModel(BaseModel):
   timeframe: str
 
 
-# --- RELOJ Y HORARIO NYSE CON DETALLE DE APERTURA/CIERRE ---
 def obtener_info_horario():
   ny_tz = pytz.timezone("America/New_York")
   ny_time = datetime.now(ny_tz)
 
-  # Fin de semana
   if ny_time.weekday() > 4:
-    # Calcular próximo lunes 9:30 AM
     dias_hasta_lunes = (7 - ny_time.weekday()) % 7
     if dias_hasta_lunes == 0:
       dias_hasta_lunes = 2
@@ -177,30 +169,25 @@ def obtener_info_horario():
     m, _ = divmod(r, 60)
     return "🔴 CERRADO (Pre-apertura)", f"Abre en {h}h {m}m"
   elif ny_time > m_close:
-    # Próxima apertura mañana a las 9:30
     proxima = m_open + timedelta(days=1)
     diff = proxima - ny_time
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, _ = divmod(r, 60)
-    return "🔴 CERRADO (Mercado cerrado por hoy)", f"Abre mañana en {h}h {m}m"
+    return "🔴 CERRADO", f"Abre mañana en {h}h {m}m"
   elif ny_time >= pre_close:
     diff = m_close - ny_time
     seg = int(diff.total_seconds())
     m, s = divmod(seg, 60)
-    return (
-        "⚠️ PRE-CIERRE",
-        f"Cierra en {m}m {s}s (Alerta intradiarias)",
-    )
+    return "⚠️ PRE-CIERRE", f"Cierra en {m}m {s}s"
   else:
     diff = m_close - ny_time
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, _ = divmod(r, 60)
-    return "🟢 ABIERTOS (NYSE en curso)", f"Cierra en {h}h {m}m"
+    return "🟢 ABIERTO (NYSE)", f"Cierra en {h}h {m}m"
 
 
-# --- MOTOR DE ANÁLISIS Y CACHÉ TTL ---
 def obtener_config_tf(tf: str):
   if tf == "4h":
     return "60d", "60m"
@@ -211,7 +198,6 @@ def obtener_config_tf(tf: str):
 
 def procesar_ticker(symbol, tf_local):
   ahora = time.time()
-  # Caché de 35 segundos para acelerar consultas masivas
   if (
       symbol in cache_yf
       and cache_yf[symbol]["tf"] == tf_local
@@ -268,18 +254,14 @@ def procesar_ticker(symbol, tf_local):
           else round(precio * 1.02, 2)
       )
 
-      # Detección de proximidad de quiebre (< 1.2% de la resistencia)
       distancia_resistencia = ((resistencia - precio) / precio) * 100
       if precio > resistencia and tendencia == "ALZA":
-        estado_entrada = "🟢 BUENA ENTRADA (Quiebre Activo)"
-      elif (
-          0 < distancia_resistencia <= 1.2 and tendencia == "ALZA"
-      ):
+        estado_entrada = "🟢 BUENA ENTRADA (Quiebre)"
+      elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
         estado_entrada = "⏳ PREPARANDO RUPTURA"
       else:
         estado_entrada = "⏳ ESPERAR"
 
-      # Generar mini gráfico de precios (últimos 15 puntos para sparkline SVG)
       ultimos_precios = df["Close"].tail(15).tolist()
       min_p, max_p = min(ultimos_precios), max(ultimos_precios)
       rango_p = max_p - min_p if max_p != min_p else 1
@@ -319,7 +301,9 @@ def escaneo_autonomo():
   while True:
     buenas = []
     with ThreadPoolExecutor(max_workers=5) as executor:
-      resultados = executor.map(lambda s: procesar_ticker(s, "1h"), TICKERS_ESCANER)
+      resultados = executor.map(
+          lambda s: procesar_ticker(s, "1h"), TICKERS_ESCANER
+      )
 
     for r in resultados:
       if r and (
@@ -443,7 +427,6 @@ def notificar_suscriptores():
       pass
 
 
-# --- API ---
 @app.get("/api/data")
 def obtener_datos():
   estado, cuenta_reg = obtener_info_horario()
@@ -461,8 +444,6 @@ def obtener_datos():
 
 @app.get("/api/stream")
 async def stream_endpoint(request: Request):
-  import asyncio
-
   q = asyncio.Queue()
   SSE_SUBSCRIBERS.append(q)
 
@@ -471,7 +452,6 @@ async def stream_endpoint(request: Request):
       while True:
         if await request.is_disconnected():
           break
-        # Mantener conexión viva cada 15 segundos
         try:
           await asyncio.wait_for(q.get(), timeout=15.0)
           yield "data: update\n\n"
@@ -567,7 +547,6 @@ def cambiar_timeframe(item: TimeframeModel):
   return {"status": "ok"}
 
 
-# --- HTML Y DISEÑO PROFESIONAL ---
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
   return """
@@ -616,11 +595,16 @@ def dashboard():
             
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
             
-            .feed-panel, .cartera-panel { background: #1c2541; border-radius: 10px; padding: 14px; border: 1px solid #3a506b; margin-bottom: 16px; }
+            .feed-panel, .cartera-panel, .edu-panel { background: #1c2541; border-radius: 10px; padding: 14px; border: 1px solid #3a506b; margin-bottom: 16px; }
             .feed-title { font-size: 1rem; color: #38bdf8; margin-bottom: 10px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
             .alerta-item { background: #0b132b; border-left: 4px solid #38bdf8; padding: 8px; margin-bottom: 6px; border-radius: 4px; }
             
-            .tooltip-educativo { background: rgba(56, 189, 248, 0.1); border: 1px dashed #38bdf8; padding: 8px; border-radius: 6px; font-size: 0.78rem; color: #bae6fd; margin-bottom: 12px; }
+            .links-externos { display: flex; gap: 6px; margin-top: 8px; justify-content: center; font-size: 0.75rem; }
+            .links-externos a { background: #0b132b; color: #38bdf8; border: 1px solid #3a506b; padding: 3px 6px; border-radius: 4px; text-decoration: none; font-weight: bold; }
+            .links-externos a:hover { background: #38bdf8; color: #0b132b; }
+
+            .edu-text { font-size: 0.82rem; color: #cbd5e1; line-height: 1.4; }
+            .edu-text ul { padding-left: 16px; margin: 6px 0; }
         </style>
     </head>
     <body>
@@ -647,9 +631,6 @@ def dashboard():
             <div>
                 <div class="cartera-panel">
                     <div class="feed-title">💼 Mi Cartera y Gestión de Riesgo</div>
-                    <div class="tooltip-educativo">
-                        💡 <b>Guía rápida para aprender:</b> Introduce el activo, tu precio de compra, el <b>Stop Loss (SL)</b> sugerido por el soporte para cortar pérdidas a tiempo, y el <b>Take Profit (TP)</b> para asegurar tu ganancia 1:2.
-                    </div>
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
                         <input type="text" id="c-ticker" placeholder="Activo" style="width:70px;" />
                         <input type="number" id="c-precio" placeholder="Entrada $" style="width:90px;" step="any" />
@@ -665,6 +646,24 @@ def dashboard():
             </div>
             
             <div>
+                <div class="edu-panel">
+                    <div class="feed-title">📖 Guía de Tiempos y Supervisión</div>
+                    <div class="edu-text">
+                        <b>Diferencias de Temporalidad:</b>
+                        <ul>
+                            <li><b>1H (Hora):</b> Para operar rápido (horas a pocos días). Requiere supervisión activa.</li>
+                            <li><b>4H (Swing):</b> Para mantener días o semanas. Menos ruido diario.</li>
+                            <li><b>1D (Diario):</b> Tendencia macro para semanas o meses.</li>
+                        </ul>
+                        <b>¿Cómo y cuándo supervisar?</b>
+                        <ul>
+                            <li><b>1H:</b> Revisa cada 30-60 min durante la sesión de Wall Street (9:30 - 16:00 EST).</li>
+                            <li><b>4H / 1D:</b> Revisa 2 veces al día (apertura y cierre).</li>
+                            <li><b>Vigila:</b> Que la SMA 9 no cruce por debajo de la SMA 21 y que el precio no rompa tu Stop Loss.</li>
+                        </ul>
+                    </div>
+                </div>
+
                 <div class="feed-panel">
                     <div class="feed-title">🤖 Escáner de Oportunidades & Rupturas</div>
                     <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando rupturas y valores listos para entrar...</div>
@@ -692,7 +691,7 @@ def dashboard():
             }
 
             async function cambiarTimeframe(tf) {
-                document.getElementById('grid-mercado').innerHTML = '<p style="color:#38bdf8;">⏳ Cambiando temporalidad y recalculando indicadores...</p>';
+                document.getElementById('grid-mercado').innerHTML = '<p style="color:#38bdf8;">⏳ Cambiando temporalidad...</p>';
                 await fetch('/api/timeframe', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -768,7 +767,6 @@ def dashboard():
                     
                     document.getElementById('select-tf').value = timeframe;
                     
-                    // Rellenar datalist predictivo una sola vez
                     const datalist = document.getElementById('datalist-tickers');
                     if(datalist.children.length === 0 && catalogo) {
                         for(const [t, desc] of Object.entries(catalogo)) {
@@ -804,7 +802,7 @@ def dashboard():
                                 </div>
                             `;
                         });
-                    } else { divCartera.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas. Usa la sección para registrar tus entradas.</span>'; }
+                    } else { divCartera.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>'; }
 
                     const divSug = document.getElementById('lista-sugerencias');
                     if(sugerencias && sugerencias.length > 0) {
@@ -814,7 +812,7 @@ def dashboard():
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
                                     <div style="font-weight:bold; color:#4ade80; font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio}</div>
                                     <div style="font-size:0.75rem; color:#facc15; margin: 2px 0;">Estado: ${s.estado}</div>
-                                    <div style="font-size:0.75rem; color:#cbd5e1; margin: 2px 0;">SL Soporte: $${s.sl} | TP Objetivo: $${s.tp}</div>
+                                    <div style="font-size:0.75rem; color:#cbd5e1; margin: 2px 0;">SL: $${s.sl} | TP: $${s.tp}</div>
                                     <div style="display:flex; gap:6px; margin-top:6px;">
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.7rem; padding:4px 8px;">+ Seguir</button>
                                         <button onclick="usarSugerencia('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.7rem; padding:4px 8px; background:#10b981; color:#fff;">💼 Operar</button>
@@ -823,7 +821,7 @@ def dashboard():
                             `;
                         });
                     } else {
-                        divSug.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Analizando rupturas alcistas y preparando alertas...</span>';
+                        divSug.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Buscando rupturas alcistas...</span>';
                     }
 
                     const grid = document.getElementById('grid-mercado');
@@ -857,11 +855,16 @@ def dashboard():
                                     </div>
                                     <div class="stat" style="margin-top:6px;"><span>SMA 9 / 21:</span> <span>$${info.sma9} / $${info.sma21}</span></div>
                                     <div class="stat" style="margin-top:2px;"><span>Volatilidad ATR:</span> <span>$${info.atr}</span></div>
+
+                                    <div class="links-externos">
+                                        <a href="https://es.finance.yahoo.com/quote/${ticker}" target="_blank" title="Ver detalle en Español">📊 Yahoo (ES)</a>
+                                        <a href="https://finance.yahoo.com/quote/${ticker}" target="_blank" title="View detail in English">📈 Yahoo (EN)</a>
+                                    </div>
                                 </div>
                             `;
                         }
                     } else {
-                        grid.innerHTML = '<p style="color:#94a3b8;">Sin activos bajo monitoreo actualmente. Agrega uno arriba.</p>';
+                        grid.innerHTML = '<p style="color:#94a3b8;">Sin activos bajo monitoreo.</p>';
                     }
 
                     const lista = document.getElementById('lista-alertas');
@@ -878,14 +881,8 @@ def dashboard():
                 } catch (e) { console.error(e); }
             }
 
-            // Inicializar carga y conexión en tiempo real SSE
             actualizarApp(true);
             iniciarSSE();
-            
-            // Reloj de cuenta regresiva local segundo a segundo para fluidez máxima
-            setInterval(() => {
-                // Actualización ligera de datos cada 15s por respaldo
-            }, 15000);
         </script>
     </body>
     </html>
