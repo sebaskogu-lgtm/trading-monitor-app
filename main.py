@@ -14,9 +14,9 @@ pytz
 psycopg2-binary
 """
 
-if not os.path.exists("requirements.txt"):
-  with open("requirements.txt", "w") as f:
-    f.write(requirements_content)
+# Sobrescribir siempre para asegurar dependencias nuevas
+with open("requirements.txt", "w") as f:
+  f.write(requirements_content)
 
 try:
   import fastapi
