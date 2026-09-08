@@ -40,7 +40,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import pandas as pd
 import psycopg2
@@ -54,16 +54,23 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 
 def get_db_connection():
-  if not DATABASE_URL:
-    return None
   try:
-    if "?" not in DATABASE_URL:
-      url_con_ssl = DATABASE_URL + "?sslmode=require"
-    elif "sslmode" not in DATABASE_URL:
-      url_con_ssl = DATABASE_URL + "&sslmode=require"
-    else:
-      url_con_ssl = DATABASE_URL
-    return psycopg2.connect(url_con_ssl)
+    if DATABASE_URL.startswith("postgresql://"):
+      url = (
+          DATABASE_URL + "?sslmode=require"
+          if "?" not in DATABASE_URL
+          else DATABASE_URL
+      )
+      return psycopg2.connect(url)
+
+    return psycopg2.connect(
+        host="db.kcohfyhdauafogjqwxto.supabase.co",
+        database="postgres",
+        user="postgres",
+        password=os.environ.get("DB_PASSWORD", "").strip(),
+        port=5432,
+        sslmode="require",
+    )
   except Exception as e:
     print("❌ ERROR CRÍTICO DE CONEXIÓN A SUPABASE:", e)
     return None
@@ -337,12 +344,11 @@ threading.Thread(target=analizar_mercado, daemon=True).start()
 
 @app.get("/api/debug-db")
 def debug_db():
-  """Ruta de diagnóstico para verificar si Supabase responde"""
   conn = get_db_connection()
   if not conn:
     return {
         "status": "error",
-        "message": "No se pudo conectar. Revisa DATABASE_URL en Render.",
+        "message": "No se pudo conectar. Revisa DATABASE_URL o DB_PASSWORD.",
     }
   try:
     cursor = conn.cursor()
