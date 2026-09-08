@@ -305,7 +305,6 @@ def procesar_ticker(symbol, tf_local):
       tendencia = "ALZA" if sma9 > sma21 else "BAJA"
       hora = datetime.now().strftime("%H:%M:%S")
 
-      # Cálculo de Retrocesos de Fibonacci del último tramo (últimas 20 velas)
       max_tramo = float(df["High"].tail(20).max())
       min_tramo = float(df["Low"].tail(20).min())
       dif_tramo = max_tramo - min_tramo
@@ -314,7 +313,6 @@ def procesar_ticker(symbol, tf_local):
       fib_500 = round(max_tramo - (dif_tramo * 0.500), 2)
       fib_618 = round(max_tramo - (dif_tramo * 0.618), 2)
 
-      # Validación de zona de Fibonacci (el precio actual está cerca de la zona dorada 50% - 61.8%)
       en_zona_fib = (fib_618 * 0.99) <= precio <= (fib_500 * 1.01)
 
       riesgo = precio - soporte_tecnico
@@ -327,18 +325,18 @@ def procesar_ticker(symbol, tf_local):
       distancia_resistencia = ((resistencia - precio) / precio) * 100
       if precio > resistencia and tendencia == "ALZA":
         estado_entrada = (
-            "🟢 BUENA ENTRADA (Quiebre + Valido)"
+            "🟢 BUENA ENTRADA (Quiebre + Fib)"
             if en_zona_fib
             else "🟢 BUENA ENTRADA (Quiebre)"
         )
       elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
         estado_entrada = (
-            "⏳ PREPARANDO (Apoyo Fib 50/61.8%)"
+            "⏳ PREPARANDO (Apoyo Fib)"
             if en_zona_fib
             else "⏳ PREPARANDO RUPTURA"
         )
       else:
-        estado_entrada = "⏳ ESPERAR (Sin pullback claro)"
+        estado_entrada = "⏳ ESPERAR (Sin pullback)"
 
       ultimos_precios = df["Close"].tail(15).tolist()
       min_p, max_p = min(ultimos_precios), max(ultimos_precios)
@@ -419,7 +417,7 @@ def analizar_mercado():
         if "BUENA ENTRADA" in r["estado_entrada"]:
           _registrar_alerta(
               sym,
-              f"🟢 SEÑAL DE COMPRA (Fib/Tendencia) | Objetivo: ${r['tp_tecnico']}",
+              f"🟢 SEÑAL DE COMPRA | TP: ${r['tp_tecnico']}",
               r["precio"],
               r["hora"],
           )
@@ -630,7 +628,7 @@ def cambiar_timeframe(item: TimeframeModel):
   global timeframe_actual, estado_mercado
   if item.timeframe in ["1h", "4h", "1d"]:
     timeframe_actual = item.timeframe
-    estado_mercado = {}  # Limpia caché al cambiar para recalcular con el nuevo TF
+    estado_mercado = {}
   return {"status": "ok"}
 
 
@@ -694,23 +692,35 @@ def dashboard():
             .edu-text { font-size: 0.82rem; color: #cbd5e1; line-height: 1.4; }
             .edu-text ul { padding-left: 16px; margin: 6px 0; }
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
+            
+            /* Banner de carga */
+            #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         </style>
     </head>
     <body>
-        <h1>📊 Trading Monitor Pro</h1>
+        <div id="loading-banner">🔄 <span id="txt-loading">Actualizando temporalidad y datos...</span></div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
+            <div></div>
+            <h1>📊 Trading Monitor Pro</h1>
+            <div>
+                <button onclick="toggleIdioma()" id="btn-lang" style="background:#3a506b; color:#fff; font-size:0.75rem; padding:4px 8px;">EN / ES</button>
+            </div>
+        </div>
+
         <div class="reloj-box">
-            <div id="reloj-mercado" class="reloj">Cargando estado del mercado...</div>
-            <div id="reloj-cuenta" class="reloj-sub">Sincronizando cronograma...</div>
+            <div id="reloj-mercado" class="reloj">...</div>
+            <div id="reloj-cuenta" class="reloj-sub">...</div>
         </div>
         
         <div class="control-panel">
             <div style="position: relative;">
-                <input type="text" id="new-ticker" placeholder="Buscar Ticker (ej: BTC-USD)..." list="datalist-tickers" onkeydown="if(event.key==='Enter') agregarActivo()" autocomplete="off" />
+                <input type="text" id="new-ticker" placeholder="Buscar Ticker..." list="datalist-tickers" onkeydown="if(event.key==='Enter') agregarActivo()" autocomplete="off" />
                 <datalist id="datalist-tickers"></datalist>
             </div>
-            <button onclick="agregarActivo()">+ Seguir Activo</button>
+            <button onclick="agregarActivo()" id="btn-add">+ Seguir Activo</button>
             <select id="select-tf" onchange="cambiarTimeframe(this.value)">
-                <option value="1h">1H (Hora - Intradiario)</option>
+                <option value="1h">1H (Intradiario)</option>
                 <option value="4h">4H (Swing)</option>
                 <option value="1d">1D (Diario)</option>
             </select>
@@ -720,52 +730,45 @@ def dashboard():
             <div>
                 <div class="cartera-panel">
                     <div class="feed-title">
-                        <span>💼 Mi Cartera y Gestión de Riesgo</span>
+                        <span id="title-cartera">💼 Mi Cartera y Gestión de Riesgo</span>
                     </div>
                     
                     <div class="metrics-bar" id="resumen-cartera">
-                        <span>Capital Expuesto: <b>$0.00</b></span>
-                        <span>Rendimiento Global: <b>0.00%</b></span>
+                        <span>Capital: <b>$0.00</b></span>
+                        <span>Rendimiento: <b>0.00%</b></span>
                     </div>
 
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
                         <input type="text" id="c-ticker" placeholder="Activo" style="width:70px;" />
                         <input type="number" id="c-precio" placeholder="Entrada $" style="width:85px;" step="any" />
-                        <input type="number" id="c-sl" placeholder="Tu SL $" style="width:85px;" step="any" />
-                        <input type="number" id="c-tp" placeholder="Tu TP $" style="width:85px;" step="any" />
-                        <input type="number" id="c-riesgo" placeholder="Riesgo $" style="width:80px;" value="50" step="any" title="Dinero máximo a perder en la operación" />
-                        <button onclick="registrarPosicion()">Guardar Posición</button>
+                        <input type="number" id="c-sl" placeholder="SL $" style="width:85px;" step="any" />
+                        <input type="number" id="c-tp" placeholder="TP $" style="width:85px;" step="any" />
+                        <input type="number" id="c-riesgo" placeholder="Riesgo $" style="width:80px;" value="50" step="any" />
+                        <button onclick="registrarPosicion()" id="btn-save-pos">Guardar</button>
                     </div>
                     <div id="lista-cartera">Sin posiciones guardadas.</div>
                 </div>
 
-                <h3>Activos bajo Monitoreo Activo</h3>
-                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con los servidores en tiempo real...</p></div>
+                <h3 id="title-watched">Activos bajo Monitoreo Activo</h3>
+                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
             </div>
             
             <div>
                 <div class="edu-panel">
-                    <div class="feed-title">📖 Guía de Tiempos y Supervisión</div>
-                    <div class="edu-text">
-                        <b>Diferencias de Temporalidad:</b>
-                        <ul>
-                            <li><b>1H (Hora):</b> Para operar rápido. Requiere supervisión activa.</li>
-                            <li><b>4H / 1D:</b> Swing y Macro. Menos ruido diario.</li>
-                        </ul>
-                        <b>Filtro Fibonacci (Pullback):</b>
-                        <ul>
-                            <li>El sistema valida zonas de soporte dorado (50% y 61.8%) antes de sugerir entradas.</li>
-                        </ul>
+                    <div class="feed-title" id="title-guide">📖 Guía & Filtro Fibonacci</div>
+                    <div class="edu-text" id="text-guide">
+                        <b>1H / 4H / 1D:</b> Diferentes horizontes temporales.<br>
+                        <b>Filtro Fibonacci:</b> El sistema valida apoyos sanos en zonas de 50% y 61.8% antes de confirmar señales.
                     </div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title">🤖 Escáner con Filtro Fibonacci</div>
-                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando rupturas y retrocesos sanos...</div>
+                    <div class="feed-title" id="title-scanner">🤖 Escáner & Filtro Fibonacci</div>
+                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando configuraciones óptimas...</div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title">🚨 Feed de Alertas en Tiempo Real</div>
+                    <div class="feed-title" id="title-alerts">🚨 Feed de Alertas en Vivo</div>
                     <div id="lista-alertas">Sin señales recientes.</div>
                 </div>
             </div>
@@ -773,26 +776,78 @@ def dashboard():
 
         <script>
             let eventoSource = null;
+            let currentLang = 'es';
+
+            const dictionary = {
+                es: {
+                    loading: "🔄 Recalculando marcos temporales y descargando datos de Yahoo Finance...",
+                    add: "+ Seguir Activo",
+                    portfolio: "💼 Mi Cartera y Gestión de Riesgo",
+                    save: "Guardar",
+                    watched: "Activos bajo Monitoreo Activo",
+                    guide: "📖 Guía & Filtro Fibonacci",
+                    guideText: "<b>1H / 4H / 1D:</b> Diferentes horizontes temporales.<br><b>Filtro Fibonacci:</b> El sistema valida apoyos sanos en zonas de 50% y 61.8% antes de confirmar señales.",
+                    scanner: "🤖 Escáner & Filtro Fibonacci",
+                    alerts: "🚨 Feed de Alertas en Vivo",
+                    emptyPortfolio: "Sin posiciones guardadas.",
+                    emptyWatched: "Sin activos bajo monitoreo.",
+                    emptyScanner: "Buscando configuraciones óptimas...",
+                    emptyAlerts: "Sin señales recientes."
+                },
+                en: {
+                    loading: "🔄 Recalculating timeframes and fetching Yahoo Finance data...",
+                    add: "+ Track Asset",
+                    portfolio: "💼 My Portfolio & Risk Management",
+                    save: "Save",
+                    watched: "Monitored Assets",
+                    guide: "📖 Guide & Fibonacci Filter",
+                    guideText: "<b>1H / 4H / 1D:</b> Different time horizons.<br><b>Fibonacci Filter:</b> System validates healthy pullbacks at 50% & 61.8% zones.",
+                    scanner: "🤖 Scanner & Fibonacci Filter",
+                    alerts: "🚨 Live Alerts Feed",
+                    emptyPortfolio: "No saved positions.",
+                    emptyWatched: "No monitored assets.",
+                    emptyScanner: "Scanning optimal setups...",
+                    emptyAlerts: "No recent signals."
+                }
+            };
+
+            function toggleIdioma() {
+                currentLang = currentLang === 'es' ? 'en' : 'es';
+                document.getElementById('btn-lang').innerText = currentLang.toUpperCase();
+                document.getElementById('txt-loading').innerText = dictionary[currentLang].loading;
+                document.getElementById('btn-add').innerText = dictionary[currentLang].add;
+                document.getElementById('title-cartera').innerText = dictionary[currentLang].portfolio;
+                document.getElementById('btn-save-pos').innerText = dictionary[currentLang].save;
+                document.getElementById('title-watched').innerText = dictionary[currentLang].watched;
+                document.getElementById('title-guide').innerText = dictionary[currentLang].guide;
+                document.getElementById('text-guide').innerHTML = dictionary[currentLang].guideText;
+                document.getElementById('title-scanner').innerText = dictionary[currentLang].scanner;
+                document.getElementById('title-alerts').innerText = dictionary[currentLang].alerts;
+                actualizarApp(true);
+            }
+
+            function mostrarBannerCarga(mostrar) {
+                document.getElementById('loading-banner').style.display = mostrar ? 'block' : 'none';
+            }
 
             function iniciarSSE() {
                 if (!!window.EventSource) {
                     eventoSource = new EventSource('/api/stream');
                     eventoSource.onmessage = function(e) {
-                        if(e.data === 'update') {
-                            actualizarApp(false);
-                        }
+                        if(e.data === 'update') { actualizarApp(false); }
                     };
                 }
             }
 
             async function cambiarTimeframe(tf) {
-                document.getElementById('grid-mercado').innerHTML = '<p style="color:#38bdf8;">⏳ Recalculando temporalidad...</p>';
+                mostrarBannerCarga(true);
                 await fetch('/api/timeframe', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ timeframe: tf })
                 });
-                actualizarApp(true);
+                await actualizarApp(true);
+                mostrarBannerCarga(false);
             }
 
             async function agregarActivo(tickerParam = null) {
@@ -800,15 +855,15 @@ def dashboard():
                 const ticker = tickerParam || input.value.trim();
                 if (!ticker) return;
                 
-                document.getElementById('grid-mercado').innerHTML += `<p style="color:#38bdf8; font-size:0.85rem;">⏳ Analizando ${ticker}...</p>`;
-                
+                mostrarBannerCarga(true);
                 await fetch('/api/add', {
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify({ ticker: ticker })
                 });
                 if(!tickerParam) input.value = '';
-                actualizarApp(true);
+                await actualizarApp(true);
+                mostrarBannerCarga(false);
             }
 
             function usarSugerencia(ticker, precio, sl, tp) {
@@ -820,12 +875,14 @@ def dashboard():
             }
 
             async function eliminarActivo(ticker) {
+                mostrarBannerCarga(true);
                 await fetch('/api/remove', {
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify({ ticker: ticker })
                 });
-                actualizarApp(true);
+                await actualizarApp(true);
+                mostrarBannerCarga(false);
             }
 
             async function registrarPosicion() {
@@ -873,11 +930,8 @@ def dashboard():
                         }
                     }
 
-                    const relojEl = document.getElementById('reloj-mercado');
-                    const cuentaEl = document.getElementById('reloj-cuenta');
-                    relojEl.innerHTML = horario;
-                    cuentaEl.innerHTML = cuenta_regresiva;
-                    relojEl.style.color = (horario.includes("CERRADO") || horario.includes("PRE-CIERRE")) ? '#f87171' : '#4ade80';
+                    document.getElementById('reloj-mercado').innerHTML = horario;
+                    document.getElementById('reloj-cuenta').innerHTML = cuenta_regresiva;
 
                     let capitalTotal = 0;
                     let pnlSuma = 0;
@@ -888,9 +942,7 @@ def dashboard():
                         cartera.forEach(p => {
                             capitalTotal += p.inversion_total || 0;
                             pnlSuma += p.pnl_porcentaje || 0;
-
                             const pnlColor = p.pnl_porcentaje >= 0 ? '#4ade80' : '#f87171';
-                            const slColor = p.analisis_sl.includes("Correcto") ? '#4ade80' : '#f87171';
                             divCartera.innerHTML += `
                                 <div class="alerta-item" style="border-left-color: ${pnlColor};">
                                     <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.9rem;">
@@ -899,24 +951,18 @@ def dashboard():
                                         <button onclick="eliminarPosicion('${p.ticker}')" style="background:none;color:#ef4444;border:none;cursor:pointer;">✕</button>
                                     </div>
                                     <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
-                                    <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Comprar: ${p.acciones || 0} acciones ($${p.inversion_total || 0} expuestos)</div>
-                                    <div style="font-size:0.8rem; margin-top:2px;">Estado: ${p.estado}</div>
-                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};">Gestión SL: ${p.analisis_sl} (Tu SL: $${p.sl_usuario})</div>
+                                    <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Comprar: ${p.acciones || 0} acciones ($${p.inversion_total || 0})</div>
                                 </div>
                             `;
                         });
-
                         const pnlPromedio = (pnlSuma / cartera.length).toFixed(2);
                         document.getElementById('resumen-cartera').innerHTML = `
-                            <span>Capital Expuesto: <b>$${capitalTotal.toFixed(2)}</b></span>
-                            <span>Rendimiento Global: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>
+                            <span>Capital: <b>$${capitalTotal.toFixed(2)}</b></span>
+                            <span>Rendimiento: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>
                         `;
                     } else { 
-                        divCartera.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>';
-                        document.getElementById('resumen-cartera').innerHTML = `
-                            <span>Capital Expuesto: <b>$0.00</b></span>
-                            <span>Rendimiento Global: <b>0.00%</b></span>
-                        `;
+                        divCartera.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyPortfolio}</span>`;
+                        document.getElementById('resumen-cartera').innerHTML = `<span>Capital: <b>$0.00</b></span><span>Rendimiento: <b>0.00%</b></span>`;
                     }
 
                     const divSug = document.getElementById('lista-sugerencias');
@@ -927,7 +973,6 @@ def dashboard():
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
                                     <div style="font-weight:bold; color:#4ade80; font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio}</div>
                                     <div style="font-size:0.75rem; color:#facc15; margin: 2px 0;">Estado: ${s.estado}</div>
-                                    <div style="font-size:0.75rem; color:#cbd5e1; margin: 2px 0;">SL: $${s.sl} | TP: $${s.tp}</div>
                                     <div style="display:flex; gap:6px; margin-top:6px;">
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.7rem; padding:4px 8px;">+ Seguir</button>
                                         <button onclick="usarSugerencia('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.7rem; padding:4px 8px; background:#10b981; color:#fff;">💼 Operar</button>
@@ -936,7 +981,7 @@ def dashboard():
                             `;
                         });
                     } else {
-                        divSug.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Buscando configuraciones óptimas...</span>';
+                        divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyScanner}</span>`;
                     }
 
                     const grid = document.getElementById('grid-mercado');
@@ -966,21 +1011,19 @@ def dashboard():
 
                                     <div class="levels-box">
                                         <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
-                                        <div class="stat"><span>🎯 TP Técnico (1:2):</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
+                                        <div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
                                         <div class="stat"><span>📐 Fib 50% / 61.8%:</span> <span class="fib-text">$${info.fib_50} / $${info.fib_618}</span></div>
                                     </div>
-                                    <div class="stat" style="margin-top:6px;"><span>SMA 9 / 21:</span> <span>$${info.sma9} / $${info.sma21}</span></div>
-                                    <div class="stat" style="margin-top:2px;"><span>Volatilidad ATR:</span> <span>$${info.atr}</span></div>
 
                                     <div class="links-externos">
-                                        <a href="https://es.finance.yahoo.com/quote/${ticker}" target="_blank" title="Ver detalle en Español">📊 Yahoo (ES)</a>
-                                        <a href="https://finance.yahoo.com/quote/${ticker}" target="_blank" title="View detail in English">📈 Yahoo (EN)</a>
+                                        <a href="https://es.finance.yahoo.com/quote/${ticker}" target="_blank">Yahoo (ES)</a>
+                                        <a href="https://finance.yahoo.com/quote/${ticker}" target="_blank">Yahoo (EN)</a>
                                     </div>
                                 </div>
                             `;
                         }
                     } else {
-                        grid.innerHTML = '<p style="color:#94a3b8;">Sin activos bajo monitoreo.</p>';
+                        grid.innerHTML = `<p style="color:#94a3b8;">${dictionary[currentLang].emptyWatched}</p>`;
                     }
 
                     const lista = document.getElementById('lista-alertas');
@@ -988,11 +1031,13 @@ def dashboard():
                         lista.innerHTML = alertas.map(a => `
                             <div class="alerta-item">
                                 <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.85rem;">
-                                    <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.7rem; color:#64748b;">${a.hora}</span>
+                                    <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
                                 </div>
                                 <div style="font-size:0.78rem; margin-top:3px;">${a.evento}</div>
                             </div>
                         `).join('');
+                    } else {
+                        lista.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyAlerts}</span>`;
                     }
                 } catch (e) { console.error(e); }
             }
