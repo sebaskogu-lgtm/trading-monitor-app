@@ -305,6 +305,18 @@ def procesar_ticker(symbol, tf_local):
       tendencia = "ALZA" if sma9 > sma21 else "BAJA"
       hora = datetime.now().strftime("%H:%M:%S")
 
+      # Cálculo de Retrocesos de Fibonacci del último tramo (últimas 20 velas)
+      max_tramo = float(df["High"].tail(20).max())
+      min_tramo = float(df["Low"].tail(20).min())
+      dif_tramo = max_tramo - min_tramo
+
+      fib_382 = round(max_tramo - (dif_tramo * 0.382), 2)
+      fib_500 = round(max_tramo - (dif_tramo * 0.500), 2)
+      fib_618 = round(max_tramo - (dif_tramo * 0.618), 2)
+
+      # Validación de zona de Fibonacci (el precio actual está cerca de la zona dorada 50% - 61.8%)
+      en_zona_fib = (fib_618 * 0.99) <= precio <= (fib_500 * 1.01)
+
       riesgo = precio - soporte_tecnico
       tp_tecnico = (
           round(precio + (riesgo * 2), 2)
@@ -314,11 +326,19 @@ def procesar_ticker(symbol, tf_local):
 
       distancia_resistencia = ((resistencia - precio) / precio) * 100
       if precio > resistencia and tendencia == "ALZA":
-        estado_entrada = "🟢 BUENA ENTRADA (Quiebre)"
+        estado_entrada = (
+            "🟢 BUENA ENTRADA (Quiebre + Valido)"
+            if en_zona_fib
+            else "🟢 BUENA ENTRADA (Quiebre)"
+        )
       elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
-        estado_entrada = "⏳ PREPARANDO RUPTURA"
+        estado_entrada = (
+            "⏳ PREPARANDO (Apoyo Fib 50/61.8%)"
+            if en_zona_fib
+            else "⏳ PREPARANDO RUPTURA"
+        )
       else:
-        estado_entrada = "⏳ ESPERAR"
+        estado_entrada = "⏳ ESPERAR (Sin pullback claro)"
 
       ultimos_precios = df["Close"].tail(15).tolist()
       min_p, max_p = min(ultimos_precios), max(ultimos_precios)
@@ -342,6 +362,9 @@ def procesar_ticker(symbol, tf_local):
           "tendencia": tendencia,
           "estado_entrada": estado_entrada,
           "atr": atr_medio,
+          "fib_50": fib_500,
+          "fib_618": fib_618,
+          "en_zona_fib": en_zona_fib,
           "hora": hora,
           "sparkline": sparkline_svg,
           "sparkline_color": "#4ade80" if tendencia == "ALZA" else "#f87171",
@@ -359,12 +382,12 @@ def escaneo_autonomo():
     buenas = []
     with ThreadPoolExecutor(max_workers=5) as executor:
       resultados = executor.map(
-          lambda s: procesar_ticker(s, "1h"), TICKERS_ESCANER
+          lambda s: procesar_ticker(s, timeframe_actual), TICKERS_ESCANER
       )
     for r in resultados:
       if r and (
           "BUENA ENTRADA" in r["estado_entrada"]
-          or "PREPARANDO RUPTURA" in r["estado_entrada"]
+          or "PREPARANDO" in r["estado_entrada"]
       ):
         buenas.append({
             "ticker": r["symbol"],
@@ -396,7 +419,7 @@ def analizar_mercado():
         if "BUENA ENTRADA" in r["estado_entrada"]:
           _registrar_alerta(
               sym,
-              f"🟢 SEÑAL DE COMPRA | Objetivo: ${r['tp_tecnico']}",
+              f"🟢 SEÑAL DE COMPRA (Fib/Tendencia) | Objetivo: ${r['tp_tecnico']}",
               r["precio"],
               r["hora"],
           )
@@ -607,7 +630,7 @@ def cambiar_timeframe(item: TimeframeModel):
   global timeframe_actual, estado_mercado
   if item.timeframe in ["1h", "4h", "1d"]:
     timeframe_actual = item.timeframe
-    estado_mercado = {}
+    estado_mercado = {}  # Limpia caché al cambiar para recalcular con el nuevo TF
   return {"status": "ok"}
 
 
@@ -655,6 +678,7 @@ def dashboard():
             .levels-box { background: #0b132b; padding: 8px; border-radius: 6px; margin-top: 6px; border: 1px solid #3a506b; }
             .sl-text { color: #f87171; font-weight: bold; }
             .tp-text { color: #4ade80; font-weight: bold; }
+            .fib-text { color: #facc15; font-weight: bold; }
             .btn-remove { position: absolute; top: 10px; right: 10px; background: transparent; color: #ef4444; border: none; font-size: 1.1rem; cursor: pointer; }
             
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
@@ -725,22 +749,19 @@ def dashboard():
                     <div class="edu-text">
                         <b>Diferencias de Temporalidad:</b>
                         <ul>
-                            <li><b>1H (Hora):</b> Para operar rápido (horas a pocos días). Requiere supervisión activa.</li>
-                            <li><b>4H (Swing):</b> Para mantener días o semanas. Menos ruido diario.</li>
-                            <li><b>1D (Diario):</b> Tendencia macro para semanas o meses.</li>
+                            <li><b>1H (Hora):</b> Para operar rápido. Requiere supervisión activa.</li>
+                            <li><b>4H / 1D:</b> Swing y Macro. Menos ruido diario.</li>
                         </ul>
-                        <b>¿Cómo y cuándo supervisar?</b>
+                        <b>Filtro Fibonacci (Pullback):</b>
                         <ul>
-                            <li><b>1H:</b> Revisa cada 30-60 min durante la sesión de Wall Street (9:30 - 16:00 EST).</li>
-                            <li><b>4H / 1D:</b> Revisa 2 veces al día (apertura y cierre).</li>
-                            <li><b>Vigila:</b> Que la SMA 9 no cruce por debajo de la SMA 21 y que el precio no rompa tu Stop Loss.</li>
+                            <li>El sistema valida zonas de soporte dorado (50% y 61.8%) antes de sugerir entradas.</li>
                         </ul>
                     </div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title">🤖 Escáner de Oportunidades & Rupturas</div>
-                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando rupturas y valores listos para entrar...</div>
+                    <div class="feed-title">🤖 Escáner con Filtro Fibonacci</div>
+                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando rupturas y retrocesos sanos...</div>
                 </div>
 
                 <div class="feed-panel">
@@ -765,7 +786,7 @@ def dashboard():
             }
 
             async function cambiarTimeframe(tf) {
-                document.getElementById('grid-mercado').innerHTML = '<p style="color:#38bdf8;">⏳ Cambiando temporalidad...</p>';
+                document.getElementById('grid-mercado').innerHTML = '<p style="color:#38bdf8;">⏳ Recalculando temporalidad...</p>';
                 await fetch('/api/timeframe', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -915,7 +936,7 @@ def dashboard():
                             `;
                         });
                     } else {
-                        divSug.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Buscando rupturas alcistas...</span>';
+                        divSug.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Buscando configuraciones óptimas...</span>';
                     }
 
                     const grid = document.getElementById('grid-mercado');
@@ -946,6 +967,7 @@ def dashboard():
                                     <div class="levels-box">
                                         <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
                                         <div class="stat"><span>🎯 TP Técnico (1:2):</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
+                                        <div class="stat"><span>📐 Fib 50% / 61.8%:</span> <span class="fib-text">$${info.fib_50} / $${info.fib_618}</span></div>
                                     </div>
                                     <div class="stat" style="margin-top:6px;"><span>SMA 9 / 21:</span> <span>$${info.sma9} / $${info.sma21}</span></div>
                                     <div class="stat" style="margin-top:2px;"><span>Volatilidad ATR:</span> <span>$${info.atr}</span></div>
