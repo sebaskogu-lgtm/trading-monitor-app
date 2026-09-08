@@ -50,25 +50,20 @@ import yfinance as yf
 app = FastAPI(title="Trading Monitor Pro")
 
 INTERVALO_SEGUNDOS = 60
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 
 def get_db_connection():
-  password = os.environ.get("DB_PASSWORD", "").strip()
-  if not password:
-    print(
-        "❌ ERROR: La variable de entorno 'DB_PASSWORD' no está configurada en"
-        " Render."
-    )
+  if not DATABASE_URL:
+    print("❌ ERROR: La variable 'DATABASE_URL' no está configurada en Render.")
     return None
   try:
-    return psycopg2.connect(
-        host="db.kcohfyhdauafogjqwxto.supabase.co",
-        database="postgres",
-        user="postgres",
-        password=password,
-        port=5432,
-        sslmode="require",
+    url = (
+        DATABASE_URL + "?sslmode=require"
+        if "?" not in DATABASE_URL
+        else DATABASE_URL
     )
+    return psycopg2.connect(url)
   except Exception as e:
     print("❌ ERROR CRÍTICO DE CONEXIÓN A SUPABASE:", e)
     return None
@@ -317,7 +312,7 @@ def procesar_ticker(symbol, tf_local):
           "sparkline": sparkline_svg,
           "sparkline_color": "#4ade80" if tendencia == "ALZA" else "#f87171",
       }
-      cache_yf[symbol] = {"tf": tf_local, "time": ahura, "data": resultado}
+      cache_yf[symbol] = {"tf": tf_local, "time": ahora, "data": resultado}
       return resultado
   except Exception:
     pass
@@ -349,7 +344,7 @@ def debug_db():
   if not conn:
     return {
         "status": "error",
-        "message": "No se pudo conectar. Revisa la variable DB_PASSWORD en Render.",
+        "message": "No se pudo conectar. Revisa DATABASE_URL (Pooler) en Render.",
     }
   try:
     cursor = conn.cursor()
