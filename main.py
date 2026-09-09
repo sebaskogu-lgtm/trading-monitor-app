@@ -855,7 +855,7 @@ def dashboard():
             .grid-activos.list-view .card-top-toolbar { display: none; }
             .grid-activos.list-view .card-header { margin-bottom: 0; width: 120px; }
             .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 75px; }
-            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; }
+            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; cursor: pointer; }
             .grid-activos.list-view .sparkline-container { width: 80px; height: 25px; margin-top: 0; }
             .grid-activos.list-view .levels-box { display: none; }
             .grid-activos.list-view .card-buttons { display: flex; gap: 4px; margin-top: 0; }
@@ -865,17 +865,18 @@ def dashboard():
             .tf-badge { background: #3a506b; color: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; }
             .bullish { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
             .bearish { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-            .entrada-ok { background: rgba(34, 197, 94, 0.3); color: #4ade80; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
-            .entrada-prep { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
-            .entrada-wait { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
-            .entrada-warn { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
-            .entrada-rebote { background: rgba(168, 85, 247, 0.25); color: #c084fc; border: 1px solid #a855f7; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
+            
+            /* Status badges interactivos con cursor pointer para ver explicaciones */
+            .entrada-ok { background: rgba(34, 197, 94, 0.3); color: #4ade80; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
+            .entrada-prep { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
+            .entrada-wait { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
+            .entrada-warn { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
+            .entrada-rebote { background: rgba(168, 85, 247, 0.25); color: #c084fc; border: 1px solid #a855f7; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             
             .stat { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.82rem; color: #cbd5e1; }
             .levels-box { background: #0b132b; padding: 8px; border-radius: 6px; margin-top: 6px; border: 1px solid #3a506b; }
             .sl-text { color: #f87171; font-weight: bold; }
             .tp-text { color: #4ade80; font-weight: bold; }
-            .fib-text { color: #facc15; font-weight: bold; }
             .btn-remove { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: bold; }
             
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
@@ -896,7 +897,7 @@ def dashboard():
             .input-group { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
             .input-group label { font-size: 0.72rem; color: #38bdf8; margin-bottom: 3px; font-weight: bold; }
 
-            /* Modal de Información y Estrategia */
+            /* Modal General */
             #info-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center; }
             .modal-content { background: #1c2541; padding: 20px; border-radius: 10px; border: 1px solid #38bdf8; width: 90%; max-width: 500px; color: #f8fafc; position: relative; }
             .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer; }
@@ -919,7 +920,7 @@ def dashboard():
 
         <div class="reloj-box">
             <div id="reloj-mercado" class="reloj">... <span class="live-indicator" title="Sincronización en vivo activa"></span></div>
-            <div id="reloj-cuenta" class="reloj-sub" id="reloj-segundos">...</div>
+            <div id="reloj-cuenta" class="reloj-sub">...</div>
         </div>
         
         <div class="control-panel">
@@ -934,7 +935,7 @@ def dashboard():
                 <option value="1d">1D (Diario)</option>
             </select>
             <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Vista Lista Compacta</button>
-            <button onclick="solicitarPermisoNotificaciones()" style="background:#f59e0b; color:#0b132b;" title="Recibe alertas nativas en el navegador aunque estés en otra pestaña">🔔 Activar Alertas</button>
+            <button onclick="solicitarPermisoNotificaciones()" style="background:#f59e0b; color:#0b132b;" title="Recibe alertas nativas en el navegador">🔔 Activar Alertas</button>
         </div>
 
         <div class="container">
@@ -993,7 +994,7 @@ def dashboard():
                         • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
                         • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
                         • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
-                        <b>🧮 Auditoría SL Cartera:</b> El estado "Analizando..." se actualiza segundo a segundo auditando si tu Stop Loss está seguro o si ya califica para asegurar ganancias (Break Even).
+                        💡 <b>¡Nuevo!</b> Haz clic en cualquier estado o etiqueta de color (como <i>BUENA ENTRADA</i> o <i>SL Correcto</i>) en cualquier sección para ver una explicación sencilla de qué significa y qué debes hacer.
                     </div>
                 </div>
 
@@ -1009,15 +1010,17 @@ def dashboard():
             </div>
         </div>
 
-        <!-- MODAL DE INFORMACIÓN Y ESTRATEGIA -->
+        <!-- MODAL DE INFORMACIÓN Y ESTADOS -->
         <div id="info-modal">
             <div class="modal-content">
                 <button class="modal-close" onclick="cerrarModal()">✕</button>
-                <h3 id="modal-titulo" style="color:#38bdf8; margin-top:0;">Información del Activo</h3>
-                <p><b>Descripción y Contexto:</b></p>
-                <p id="modal-desc" style="color:#cbd5e1; font-size:0.85rem;"></p>
-                <p><b>Estrategia e Indicadores:</b></p>
-                <p id="modal-estrategia" style="color:#cbd5e1; font-size:0.85rem;"></p>
+                <h3 id="modal-titulo" style="color:#38bdf8; margin-top:0;">Información</h3>
+                <div id="modal-body-content">
+                    <p><b>Descripción y Contexto:</b></p>
+                    <p id="modal-desc" style="color:#cbd5e1; font-size:0.85rem;"></p>
+                    <p><b>Estrategia e Indicadores:</b></p>
+                    <p id="modal-estrategia" style="color:#cbd5e1; font-size:0.85rem;"></p>
+                </div>
             </div>
         </div>
 
@@ -1028,6 +1031,94 @@ def dashboard():
             let mercadoGlobalData = {};
             let catalogoGlobal = {};
             let ultimaAlertaVistaId = null;
+
+            // Diccionario de explicaciones simples para cada Status o Estado del sistema
+            const explicacionesEstados = {
+                "BUENA ENTRADA": {
+                    titulo: "🟢 Buena Entrada Detectada",
+                    porque: "El precio superó su resistencia clave y hay suficiente dinero real (volumen) respaldando el movimiento alcista.",
+                    resultado: "El análisis técnico confirma que los compradores tienen el control absoluto a corto plazo.",
+                    queHacer: "Es un escenario favorable. Puedes operar con confianza usando el botón 'Operar' para calcular tu tamaño de posición."
+                },
+                "PREPARANDO": {
+                    titulo: "⏳ Preparando Movimiento",
+                    porque: "El activo está retrocediendo de manera saludable hacia una zona de imán o soporte (como los niveles de Fibonacci) antes de seguir subiendo.",
+                    resultado: "El precio está descansando de su última subida, lo cual es normal y sano.",
+                    queHacer: "Monitorea de cerca. No compres de golpe todavía; espera a que toque el soporte y muestre intenciones de rebotar."
+                },
+                "REBOTE EN ZONA": {
+                    titulo: "💥 Rebote en Zona de Sobreventa",
+                    porque: "El activo cayó con fuerza y tocó un piso técnico importante (RSI menor o igual a 30) desde donde los compradores suelen despertar.",
+                    resultado: "El mercado castigó demasiado al precio y ahora está rebotando desde el suelo.",
+                    queHacer: "Oportunidad ideal para buscar un rebote rápido al alza. Entra con precaución y mantén tu Stop Loss ajustado por seguridad."
+                },
+                "FALSO QUIEBRE": {
+                    titulo: "⚠️ Falso Quiebre (Trampa)",
+                    porque: "El precio intentó romper una resistencia hacia arriba, pero no hay dinero real (volumen) detrás de la subida.",
+                    resultado: "Es una trampa típica del mercado para atrapar compradores desprevenidos antes de una caída.",
+                    queHacer: "¡No entres! Ignora la subida. Lo más probable es que el precio vuelva a caer al rango anterior en poco tiempo."
+                },
+                "SOBRECOMPRADO": {
+                    titulo: "⚠️ Zona de Sobrecompra",
+                    porque: "El activo subió demasiado rápido en muy poco tiempo y los inversores están empezando a tomar ganancias.",
+                    resultado: "El precio está 'caro' a corto plazo y la fuerza compradora se está agotando.",
+                    queHacer: "Evita comprar aquí. El riesgo de una corrección o caída repentina es alto; espera a que el precio descanse."
+                },
+                "SOBREVENDIDO": {
+                    titulo: "📉 Zona de Sobreventa",
+                    porque: "El precio ha tenido una caída muy fuerte y prolongada, pero el mercado aún no muestra señales claras de haber encontrado un suelo definitivo.",
+                    resultado: "El activo está cayendo con fuerza sin frenos aparentes.",
+                    queHacer: "No compres por desesperación. Espera pacientemente a que el gráfico dibuje una vela de giro o cambie de dirección."
+                },
+                "ESPERAR": {
+                    titulo: "⏳ Esperar y Observar",
+                    porque: "El activo está en una zona neutral, sin fuerza clara, sin volumen relevante ni dirección definida.",
+                    resultado: "El mercado está indeciso y lateral.",
+                    queHacer: "No hagas nada. Guarda tu capital y pasa a revisar otro activo que sí tenga una oportunidad clara."
+                },
+                "CRUCE BAJISTA": {
+                    titulo: "⚠️ Cruce Bajista en Cartera",
+                    porque: "La media móvil rápida cruzó por debajo de la lenta, indicando pérdida de impulso y posible cambio de tendencia a la baja.",
+                    resultado: "La fuerza alcista se rompió.",
+                    queHacer: "Si tienes este activo en tu cartera, evalúa asegurar tus ganancias o recortar pérdidas antes de que la caída sea mayor."
+                },
+                "SL Correcto": {
+                    titulo: "✔️ Stop Loss Correcto",
+                    porque: "Tu nivel de protección está ubicado de forma lógica por debajo del último soporte técnico.",
+                    resultado: "Tu riesgo está bien delimitado frente a fluctuaciones normales del mercado.",
+                    queHacer: "No necesitas hacer nada. Mantén la posición tranquila y deja que trabaje."
+                },
+                "TRAILING": {
+                    titulo: "📈 Trailing Stop Recomendado",
+                    porque: "Tu operación ya ganó buen porcentaje y el precio ha subido considerablemente.",
+                    resultado: "El mercado te está regalando margen de ganancia.",
+                    queHacer: "Sube tu Stop Loss al último soporte técnico para asegurar tus ganancias sin arriesgar tu capital inicial."
+                },
+                "ASEGURA": {
+                    titulo: "🔔 Asegurar a Break Even",
+                    porque: "Tu operación ya superó el 1.5% o más de ganancia.",
+                    resultado: "Estás en zona ganadora con holgura.",
+                    queHacer: "Sube tu Stop Loss exactamente al precio en que compraste (Break Even). Así, si el mercado se da vuelta de repente, sales con cero pérdidas."
+                },
+                "SL MUY CORTO": {
+                    titulo: "⚠️ Stop Loss Muy Corto",
+                    porque: "Tu protección está demasiado cerca del precio actual.",
+                    resultado: "Cualquier pequeña fluctuación normal del mercado te sacará de la operación por error.",
+                    queHacer: "Amplía un poco más abajo tu Stop Loss, colocándolo debajo del soporte técnico real."
+                },
+                "SL MUY LEJOS": {
+                    titulo: "⚠️ Stop Loss Muy Lejos",
+                    porque: "Tu protección está demasiado separada del precio de entrada.",
+                    resultado: "Estás arriesgando mucho más dinero del necesario si la operación sale mal.",
+                    queHacer: "Acerca tu Stop Loss al soporte técnico para mantener tu gestión de riesgo estricta."
+                },
+                "ANALIZANDO": {
+                    titulo: "🔄 Analizando Posición",
+                    porque: "El sistema está procesando los precios en tiempo real para auditar el estado de tu Stop Loss.",
+                    resultado: "Sincronizando datos de mercado.",
+                    queHacer: "Espera unos segundos a que reciba la primera actualización en vivo."
+                }
+            };
 
             // Reloj con segundero local fluido
             setInterval(() => {
@@ -1095,8 +1186,44 @@ def dashboard():
                 });
 
                 document.getElementById('modal-titulo').innerText = `${ticker} - ${info.nombre || ''}`;
-                document.getElementById('modal-desc').innerText = info.descripcion || "Sin descripción disponible.";
-                document.getElementById('modal-estrategia').innerText = info.estrategia_explicacion || "Estrategia estándar de monitoreo técnico.";
+                document.getElementById('modal-body-content').innerHTML = `
+                    <p><b>Descripción y Contexto:</b></p>
+                    <p style="color:#cbd5e1; font-size:0.85rem;">${info.descripcion || "Sin descripción disponible."}</p>
+                    <p><b>Estrategia e Indicadores:</b></p>
+                    <p style="color:#cbd5e1; font-size:0.85rem;">${info.estrategia_explicacion || "Estrategia estándar de monitoreo técnico."}</p>
+                `;
+                document.getElementById('info-modal').style.display = 'flex';
+            }
+
+            function mostrarExplicacionEstado(claveEstado) {
+                let encontrado = null;
+                for (const [key, val] of Object.entries(explicacionesEstados)) {
+                    if (claveEstado.toUpperCase().includes(key.toUpperCase())) {
+                        encontrado = val;
+                        break;
+                    }
+                }
+
+                if (!encontrado) {
+                    encontrado = {
+                        titulo: "ℹ️ Estado del Sistema",
+                        porque: "Este estado indica la condición actual del activo basada en cruces de medias móviles, RSI y volumen.",
+                        resultado: "Lectura técnica en proceso.",
+                        queHacer: "Vigila el comportamiento del precio en los niveles de soporte y resistencia cercanos."
+                    };
+                }
+
+                document.getElementById('modal-titulo').innerText = encontrado.titulo;
+                document.getElementById('modal-body-content').innerHTML = `
+                    <p><b>¿Por qué ocurre esto? (El por qué):</b></p>
+                    <p style="color:#cbd5e1; font-size:0.85rem; background:#0b132b; padding:8px; border-radius:6px; border:1px solid #3a506b;">${encontrado.porque}</p>
+                    
+                    <p><b>Resultado del análisis:</b></p>
+                    <p style="color:#cbd5e1; font-size:0.85rem; background:#0b132b; padding:8px; border-radius:6px; border:1px solid #3a506b;">${encontrado.resultado}</p>
+                    
+                    <p><b>¿Qué deberías hacer?:</b></p>
+                    <p style="color:#4ade80; font-weight:bold; font-size:0.88rem; background:#0b132b; padding:8px; border-radius:6px; border:1px solid #3a506b;">👉 ${encontrado.queHacer}</p>
+                `;
                 document.getElementById('info-modal').style.display = 'flex';
             }
 
@@ -1231,7 +1358,6 @@ def dashboard():
                     document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator" title="Sincronización en vivo activa"></span>`;
                     document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva} | Local: <span id="reloj-segundos-local">...</span>`;
 
-                    // Notificaciones de navegador para alertas nuevas
                     if (alertas && alertas.length > 0) {
                         const ultima = alertas[0];
                         const idUnico = ultima.symbol + "_" + ultima.hora + "_" + ultima.precio;
@@ -1264,7 +1390,7 @@ def dashboard():
                                     </div>
                                     <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
                                     <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Acciones: ${p.acciones || 0} ($${p.inversion_total || 0})</div>
-                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};" title="El sistema audita segundo a segundo si tu Stop Loss está seguro o si debes asegurar ganancias">SL Audit: ${p.analisis_sl}</div>
+                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor}; cursor:pointer;" onclick="mostrarExplicacionEstado('${p.analisis_sl}')" title="Haz clic para entender este estado">SL Audit: <span style="text-decoration:underline;">${p.analisis_sl}</span> 🔍</div>
                                 </div>
                             `;
                         });
@@ -1287,7 +1413,7 @@ def dashboard():
                             divSug.innerHTML += `
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
                                     <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio} (RSI: ${s.rsi})</div>
-                                    <div style="font-size:0.75rem; color:#facc15; margin: 2px 0;">${s.estado}</div>
+                                    <div style="font-size:0.75rem; color:#facc15; margin: 2px 0; cursor:pointer;" onclick="mostrarExplicacionEstado('${s.estado}')" title="Haz clic para ver explicación">📌 <span style="text-decoration:underline;">${s.estado}</span> 🔍</div>
                                     <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button>
                                         <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
@@ -1310,7 +1436,7 @@ def dashboard():
                                 <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.85rem;">
                                     <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
                                 </div>
-                                <div style="font-size:0.78rem; margin-top:3px;">${a.evento}</div>
+                                <div style="font-size:0.78rem; margin-top:3px; cursor:pointer;" onclick="mostrarExplicacionEstado('${a.evento}')" title="Haz clic para ver explicación">🔔 <span style="text-decoration:underline;">${a.evento}</span> 🔍</div>
                                 <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                                     <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:3px 6px;">+ Seguir Activo</button>
                                     <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Operar</button>
@@ -1346,7 +1472,7 @@ def dashboard():
                                         <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
                                     </div>
                                     <div class="price" style="width:75px;">$${info.precio}</div>
-                                    <div class="${claseEntrada}" style="width:160px; text-align:center; margin-bottom:0;">${info.estado_entrada}</div>
+                                    <div class="${claseEntrada}" style="width:160px; text-align:center; margin-bottom:0;" onclick="mostrarExplicacionEstado('${info.estado_entrada}')" title="Haz clic para explicación">${info.estado_entrada} 🔍</div>
                                     
                                     <div class="sparkline-container" style="width:80px; height:25px; margin-top:0;">
                                         <svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none">
@@ -1382,7 +1508,7 @@ def dashboard():
                                         <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
                                     </div>
                                     <div class="price">$${info.precio}</div>
-                                    <div class="${claseEntrada}">${info.estado_entrada}</div>
+                                    <div class="${claseEntrada}" onclick="mostrarExplicacionEstado('${info.estado_entrada}')" title="Haz clic para entender este estado">${info.estado_entrada} 🔍</div>
                                     
                                     <div class="sparkline-container">
                                         <svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none">
