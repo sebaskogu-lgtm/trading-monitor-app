@@ -837,8 +837,12 @@ def dashboard():
             button { background: #38bdf8; color: #0b132b; border: none; padding: 8px 12px; font-weight: bold; border-radius: 6px; cursor: pointer; }
             button:hover { background: #7dd3fc; }
             
-            .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
-            @media (max-width: 850px) { .container { grid-template-columns: 1fr; } }
+            /* DISEÑO DE COLUMNAS OPTIMIZADO PARA MÓVIL (Alertas primero en celular) */
+            .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; }
+            @media (max-width: 900px) { 
+                .container { grid-template-columns: 1fr; } 
+                .sidebar-prioritario { order: -1; } /* Sube alertas y escáner arriba en celulares */
+            }
             
             .grid-activos { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
             .grid-activos.list-view { grid-template-columns: 1fr; }
@@ -866,7 +870,6 @@ def dashboard():
             .bullish { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
             .bearish { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
             
-            /* Status badges interactivos con cursor pointer para ver explicaciones */
             .entrada-ok { background: rgba(34, 197, 94, 0.3); color: #4ade80; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             .entrada-prep { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             .entrada-wait { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
@@ -939,8 +942,12 @@ def dashboard():
         </div>
 
         <div class="container">
+            <!-- COLUMNA PRINCIPAL DE ACTIVOS Y CARTERA -->
             <div>
-                <div class="cartera-panel">
+                <h3>Activos bajo Monitoreo (Orden Automático por Urgencia)</h3>
+                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
+
+                <div class="cartera-panel" style="margin-top: 16px;">
                     <div class="feed-title">
                         <span>💼 Mi Cartera y Gestión de Riesgo</span>
                     </div>
@@ -978,24 +985,13 @@ def dashboard():
                     </div>
                     <div id="lista-cartera">Sin posiciones guardadas.</div>
                 </div>
-
-                <h3>Activos bajo Monitoreo Activo</h3>
-                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
             </div>
             
-            <div>
-                <div class="edu-panel">
-                    <div class="feed-title">📖 Manual PRO & Algoritmo</div>
-                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales</button>
-                    
-                    <div id="box-manual" class="manual-box" style="display:none;">
-                        <b>🏷️ Significado de Señales:</b><br>
-                        • <span class="manual-tag entrada-ok">BUENA ENTRADA</span> Quiebre validado con volumen y RSI sano.<br>
-                        • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
-                        • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
-                        • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
-                        💡 <b>¡Nuevo!</b> Haz clic en cualquier estado o etiqueta de color (como <i>BUENA ENTRADA</i> o <i>SL Correcto</i>) en cualquier sección para ver una explicación sencilla de qué significa y qué debes hacer.
-                    </div>
+            <!-- COLUMNA LATERAL (EN MÓVIL APARECE PRIMERO ARRIBA PARA ACCESO RÁPIDO) -->
+            <div class="sidebar-prioritario">
+                <div class="feed-panel">
+                    <div class="feed-title">🚨 Feed de Alertas en Vivo (Acción Urgente)</div>
+                    <div id="lista-alertas">Sin señales recientes.</div>
                 </div>
 
                 <div class="feed-panel">
@@ -1003,9 +999,17 @@ def dashboard():
                     <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando Momentum y Rebotes...</div>
                 </div>
 
-                <div class="feed-panel">
-                    <div class="feed-title">🚨 Feed de Alertas en Vivo</div>
-                    <div id="lista-alertas">Sin señales recientes.</div>
+                <div class="edu-panel">
+                    <div class="feed-title">📖 Manual PRO & Algoritmo</div>
+                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales</button>
+                    
+                    <div id="box-manual" class="manual-box" style="display:none;">
+                        <b>🏷️ Prioridad Automática:</b><br>
+                        • <b>Urgente (Primero):</b> Rupturas confirmadas y rebotes listos para operar.<br>
+                        • <b>Monitoreo Activo (Medio):</b> Activos preparándose en zonas de soporte o con avisos en cartera.<br>
+                        • <b>Estáticos (Últimos):</b> Activos en espera o sin movimiento relevante.<br><br>
+                        💡 <b>Ayuda:</b> Haz clic en cualquier estado o etiqueta para ver explicaciones sencillas.
+                    </div>
                 </div>
             </div>
         </div>
@@ -1032,7 +1036,6 @@ def dashboard():
             let catalogoGlobal = {};
             let ultimaAlertaVistaId = null;
 
-            // Diccionario de explicaciones simples para cada Status o Estado del sistema
             const explicacionesEstados = {
                 "BUENA ENTRADA": {
                     titulo: "🟢 Buena Entrada Detectada",
@@ -1120,7 +1123,6 @@ def dashboard():
                 }
             };
 
-            // Reloj con segundero local fluido
             setInterval(() => {
                 const now = new Date();
                 const timeString = now.toLocaleTimeString();
@@ -1147,10 +1149,7 @@ def dashboard():
 
             function dispararNotificacionEscritorio(titulo, cuerpo) {
                 if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification(titulo, {
-                        body: cuerpo,
-                        icon: ""
-                    });
+                    new Notification(titulo, { body: cuerpo, icon: "" });
                 }
             }
 
@@ -1279,23 +1278,6 @@ def dashboard():
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
-            async function moverActivoLocal(index, direccion) {
-                const targetIndex = index + direccion;
-                if (targetIndex < 0 || targetIndex >= ordenActivosGlobal.length) return;
-                
-                const temp = ordenActivosGlobal[index];
-                ordenActivosGlobal[index] = ordenActivosGlobal[targetIndex];
-                ordenActivosGlobal[targetIndex] = temp;
-
-                renderizarGridMercado();
-
-                await fetch('/api/reorder', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ activos: ordenActivosGlobal })
-                });
-            }
-
             async function eliminarActivo(ticker) {
                 mostrarBannerCarga(true);
                 await fetch('/api/remove', {
@@ -1335,6 +1317,16 @@ def dashboard():
                 actualizarApp(true);
             }
 
+            // FUNCIÓN DE ORDENAMIENTO AUTOMÁTICO POR URGENCIA
+            function obtenerPuntajeUrgencia(ticker) {
+                const info = mercadoGlobalData[ticker];
+                if (!info) return 3;
+                const st = info.estado_entrada || "";
+                if (st.includes("BUENA ENTRADA") || st.includes("REBOTE")) return 1; // 🚨 URGENTE (Accionar)
+                if (st.includes("PREPARANDO") || st.includes("SOBRE") || st.includes("FALSO")) return 2; // ⚡ MONITOREAR ACTIVAMENTE
+                return 3; // ⏳ ESTÁTICO / ESPERAR
+            }
+
             async function actualizarApp(forzarRender = false) {
                 try {
                     const res = await fetch('/api/data');
@@ -1344,6 +1336,11 @@ def dashboard():
                     if(activos_orden) ordenActivosGlobal = activos_orden;
                     if(mercado) mercadoGlobalData = mercado;
                     if(catalogo) catalogoGlobal = catalogo;
+
+                    // ORDENAR AUTOMÁTICAMENTE SEGÚN URGENCIA
+                    if(ordenActivosGlobal.length > 0 && Object.keys(mercadoGlobalData).length > 0) {
+                        ordenActivosGlobal.sort((a, b) => obtenerPuntajeUrgencia(a) - obtenerPuntajeUrgencia(b));
+                    }
                     
                     const datalist = document.getElementById('datalist-tickers');
                     if(datalist.children.length === 0 && catalogo) {
@@ -1483,11 +1480,7 @@ def dashboard():
                                     <div class="list-actions-bar">
                                         <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.68rem; background:#10b981; color:#fff; padding:4px 6px;">💼 Operar</button>
                                         <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem;">📈 TradingView</a>
-                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
-                                        <div class="reorder-group" style="display:flex; gap:2px; margin-left:4px;">
-                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
-                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
-                                        </div>
+                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️ Info</button>
                                         <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
                                     </div>
                                 </div>
@@ -1496,10 +1489,7 @@ def dashboard():
                             grid.innerHTML += `
                                 <div class="card">
                                     <div class="card-top-toolbar">
-                                        <div class="reorder-group">
-                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️ Subir</button>
-                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️ Bajar</button>
-                                        </div>
+                                        <span style="font-size:0.7rem; color:#38bdf8; font-weight:bold;">Prioridad #${idx + 1}</span>
                                         <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕ Eliminar</button>
                                     </div>
 
