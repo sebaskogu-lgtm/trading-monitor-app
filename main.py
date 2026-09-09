@@ -848,11 +848,9 @@ def dashboard():
             .ticker { font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 6px; }
             .price { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
             
-            /* BARRA DE ACCIONES SUPERIOR EN TARJETAS PARA EVITAR SOLAPES */
             .card-top-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
             .reorder-group { display: flex; gap: 4px; }
             
-            /* VISTA DE LISTA COMPACTA HORIZONTAL */
             .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
             .grid-activos.list-view .card-top-toolbar { display: none; }
             .grid-activos.list-view .card-header { margin-bottom: 0; width: 120px; }
@@ -886,7 +884,6 @@ def dashboard():
             .feed-title { font-size: 1rem; color: #38bdf8; margin-bottom: 10px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
             .alerta-item { background: #0b132b; border-left: 4px solid #38bdf8; padding: 8px; margin-bottom: 6px; border-radius: 4px; }
             
-            .links-externos { display: flex; gap: 6px; margin-top: 8px; justify-content: center; font-size: 0.75rem; }
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
             
             #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -937,6 +934,7 @@ def dashboard():
                 <option value="1d">1D (Diario)</option>
             </select>
             <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Vista Lista Compacta</button>
+            <button onclick="solicitarPermisoNotificaciones()" style="background:#f59e0b; color:#0b132b;" title="Recibe alertas nativas en el navegador aunque estés en otra pestaña">🔔 Activar Alertas</button>
         </div>
 
         <div class="container">
@@ -951,7 +949,6 @@ def dashboard():
                         <span>Rendimiento: <b>0.00%</b></span>
                     </div>
 
-                    <!-- CALCULADORA DE RIESGO CON TÍTULO CLARO -->
                     <div style="font-size:0.8rem; font-weight:bold; color:#38bdf8; margin-bottom:6px;">🧮 CALCULADORA DE TAMAÑO DE POSICIÓN Y RIESGO</div>
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; background:#0b132b; padding:10px; border-radius:6px; border:1px solid #3a506b;">
                         <div class="input-group">
@@ -1030,6 +1027,7 @@ def dashboard():
             let modoLista = false;
             let mercadoGlobalData = {};
             let catalogoGlobal = {};
+            let ultimaAlertaVistaId = null;
 
             // Reloj con segundero local fluido
             setInterval(() => {
@@ -1038,6 +1036,32 @@ def dashboard():
                 const el = document.getElementById('reloj-segundos-local');
                 if(el) el.innerText = timeString;
             }, 1000);
+
+            function solicitarPermisoNotificaciones() {
+                if (!("Notification" in window)) {
+                    alert("Este navegador no soporta notificaciones de escritorio.");
+                    return;
+                }
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        new Notification("Trading Monitor Pro", {
+                            body: "¡Notificaciones de navegador activadas con éxito!",
+                            icon: ""
+                        });
+                    } else {
+                        alert("Permiso de notificaciones denegado.");
+                    }
+                });
+            }
+
+            function dispararNotificacionEscritorio(titulo, cuerpo) {
+                if ("Notification" in window && Notification.permission === "granted") {
+                    new Notification(titulo, {
+                        body: cuerpo,
+                        icon: ""
+                    });
+                }
+            }
 
             function toggleManual() {
                 const el = document.getElementById('box-manual');
@@ -1206,6 +1230,16 @@ def dashboard():
 
                     document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator" title="Sincronización en vivo activa"></span>`;
                     document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva} | Local: <span id="reloj-segundos-local">...</span>`;
+
+                    // Notificaciones de navegador para alertas nuevas
+                    if (alertas && alertas.length > 0) {
+                        const ultima = alertas[0];
+                        const idUnico = ultima.symbol + "_" + ultima.hora + "_" + ultima.precio;
+                        if (ultimaAlertaVistaId !== null && ultimaAlertaVistaId !== idUnico) {
+                            dispararNotificacionEscritorio(`🚨 Alerta Trading: ${ultima.symbol}`, `${ultima.evento} - Precio: $${ultima.precio}`);
+                        }
+                        ultimaAlertaVistaId = idUnico;
+                    }
 
                     let capitalTotal = 0;
                     let pnlSuma = 0;
