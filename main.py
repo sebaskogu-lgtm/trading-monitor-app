@@ -404,28 +404,28 @@ def procesar_ticker(symbol, tf_local):
       )
 
       distancia_resistencia = ((resistencia - precio) / precio) * 100
-      riesgo_macro_str = " | ⚠️ Macro BEAR" if tendencia_macro == "BAJA" else ""
+      riesgo_macro_str = " | ⚠️ Macro BAJISTA" if tendencia_macro == "BAJA" else ""
 
       if precio > resistencia and tendencia == "ALZA":
         if rsi_val >= 70.0:
-          estado_entrada = f"⚠️ OVERBOUGHT (Risk | RSI {rsi_val})"
+          estado_entrada = f"⚠️ SOBRECOMPRADO (Riesgo | RSI {rsi_val})"
         elif not vol_valido:
-          estado_entrada = f"⚠️ FALSE BREAKOUT (Low Vol | RSI {rsi_val})"
+          estado_entrada = f"⚠️ FALSO QUIEBRE (Bajo Vol | RSI {rsi_val})"
         elif en_zona_fib:
-          estado_entrada = f"🟢 GOOD ENTRY (Breakout+Fib){riesgo_macro_str}"
+          estado_entrada = f"🟢 BUENA ENTRADA (Quiebre+Fib){riesgo_macro_str}"
         else:
-          estado_entrada = f"🟢 GOOD ENTRY (Breakout){riesgo_macro_str}"
+          estado_entrada = f"🟢 BUENA ENTRADA (Quiebre){riesgo_macro_str}"
       elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
         if en_zona_fib:
-          estado_entrada = f"⏳ PREPARING (Fib Pullback | RSI {rsi_val}){riesgo_macro_str}"
+          estado_entrada = f"⏳ PREPARANDO (Apoyo Fib | RSI {rsi_val}){riesgo_macro_str}"
         else:
-          estado_entrada = f"⏳ PREPARING BREAKOUT (RSI {rsi_val}){riesgo_macro_str}"
+          estado_entrada = f"⏳ PREPARANDO RUPTURA (RSI {rsi_val}){riesgo_macro_str}"
       elif rsi_val <= 30.0 and en_zona_fib:
-        estado_entrada = f"💥 ZONE BOUNCE (Oversold){riesgo_macro_str}"
+        estado_entrada = f"💥 REBOTE EN ZONA (Sobrevendido){riesgo_macro_str}"
       elif rsi_val <= 30.0:
-        estado_entrada = f"📉 OVERSOLD (Wait Reversal | RSI {rsi_val})"
+        estado_entrada = f"📉 SOBREVENDIDO (Esperar giro | RSI {rsi_val})"
       else:
-        estado_entrada = f"⏳ WAIT (RSI {rsi_val})"
+        estado_entrada = f"⏳ ESPERAR (RSI {rsi_val})"
 
       ultimos_precios = df["Close"].tail(15).tolist()
       min_p, max_p = min(ultimos_precios), max(ultimos_precios)
@@ -482,7 +482,7 @@ def escaneo_autonomo():
       oportunidades = []
       for r in validos:
         st = r["estado_entrada"]
-        if "GOOD ENTRY" in st or "PREPARING" in st or "ZONE BOUNCE" in st:
+        if "BUENA ENTRADA" in st or "PREPARANDO" in st or "REBOTE" in st:
           oportunidades.append({
               "ticker": r["symbol"],
               "precio": r["precio"],
@@ -495,8 +495,8 @@ def escaneo_autonomo():
       oportunidades.sort(
           key=lambda x: (
               0
-              if "GOOD ENTRY" in x["estado"]
-              else (1 if "ZONE BOUNCE" in x["estado"] else 2)
+              if "BUENA ENTRADA" in x["estado"]
+              else (1 if "REBOTE" in x["estado"] else 2)
           )
       )
       recomendaciones_escaner = oportunidades[:5]
@@ -521,12 +521,14 @@ def analizar_mercado():
       if r:
         sym = r["symbol"]
         nuevo_estado[sym] = r
-        if "GOOD ENTRY" in r["estado_entrada"] or "ZONE BOUNCE" in r["estado_entrada"]:
+        if "BUENA ENTRADA" in r["estado_entrada"] or "REBOTE EN ZONA" in r["estado_entrada"]:
           _registrar_alerta(
               sym,
-              f"🟢 ALERT ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}",
+              f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}",
               r["precio"],
               r["hora"],
+              r["soporte_tecnico"],
+              r["tp_tecnico"],
           )
         _evaluar_cartera(
             sym,
@@ -553,29 +555,29 @@ def _evaluar_cartera(
       p_compra = pos["precio_compra"]
       sl_user = pos["sl_usuario"]
       p_ganancia = ((precio_actual - p_compra) / p_compra) * 100
-      estado_pos = "🔵 HOLD"
+      estado_pos = "🔵 MANTENER"
 
       if sma9 < sma21:
-        estado_pos = "⚠️ BEARISH CROSS"
+        estado_pos = "⚠️ CRUCE BAJISTA"
         _registrar_alerta(
-            symbol, f"⚠️ PORTFOLIO: Momentum lost.", precio_actual, hora
+            symbol, f"⚠️ CARTERA: Pérdida de impulso.", precio_actual, hora, soporte_tecnico, pos["tp_usuario"]
         )
       elif p_ganancia >= 2.0:
-        estado_pos = "🟢 IN PROFIT"
+        estado_pos = "🟢 EN GANANCIA"
 
       distancia_sl = precio_actual - sl_user
-      mensaje_sl = "✔️ SL Valid"
+      mensaje_sl = "✔️ SL Correcto"
 
       if sl_user >= precio_actual:
-        mensaje_sl = "❌ Invalid SL"
+        mensaje_sl = "❌ SL Inválido"
       elif p_ganancia >= 3.0 and sl_user < soporte_tecnico:
-        mensaje_sl = f"📈 Trailing Stop: Move SL to support (${soporte_tecnico})"
+        mensaje_sl = f"📈 Trailing: Sube SL a soporte (${soporte_tecnico})"
       elif p_ganancia >= 1.5 and sl_user < p_compra:
-        mensaje_sl = f"🔔 Secure Profit: Move SL to BE (${p_compra})"
+        mensaje_sl = f"🔔 Asegura: Sube SL a BE (${p_compra})"
       elif distancia_sl < (atr * 0.5):
-        mensaje_sl = "⚠️ SL TOO TIGHT"
+        mensaje_sl = "⚠️ SL MUY CORTO"
       elif sl_user < (soporte_tecnico * 0.95):
-        mensaje_sl = "⚠️ SL TOO WIDE"
+        mensaje_sl = "⚠️ SL MUY LEJOS"
 
       pos["precio_actual"] = precio_actual
       pos["pnl_porcentaje"] = round(p_ganancia, 2)
@@ -587,7 +589,7 @@ def _evaluar_cartera(
     db_set("cartera", cartera)
 
 
-def _registrar_alerta(symbol, evento, precio, hora):
+def _registrar_alerta(symbol, evento, precio, hora, sl=0, tp=0):
   global historial_alertas
   if (
       not historial_alertas
@@ -595,7 +597,15 @@ def _registrar_alerta(symbol, evento, precio, hora):
       or historial_alertas[0]["evento"] != evento
   ):
     historial_alertas.insert(
-        0, {"symbol": symbol, "evento": evento, "precio": precio, "hora": hora}
+        0,
+        {
+            "symbol": symbol,
+            "evento": evento,
+            "precio": precio,
+            "hora": hora,
+            "sl": sl,
+            "tp": tp,
+        },
     )
     historial_alertas = historial_alertas[:20]
 
@@ -741,8 +751,8 @@ def agregar_cartera(item: PosicionModel):
       "timeframe": item.timeframe,
       "precio_actual": item.precio_compra,
       "pnl_porcentaje": 0.0,
-      "estado": "🔵 HOLD",
-      "analisis_sl": "Analyzing...",
+      "estado": "🔵 MANTENER",
+      "analisis_sl": "Analizando...",
   })
   db_set("cartera", cartera)
   return {"status": "ok"}
@@ -798,6 +808,8 @@ def dashboard():
             @media (max-width: 850px) { .container { grid-template-columns: 1fr; } }
             
             .grid-activos { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+            .grid-activos.list-view { grid-template-columns: 1fr; }
+            
             .card { background: #1c2541; border-radius: 10px; padding: 14px; border: 1px solid #3a506b; position: relative; }
             .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
             .ticker { font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 6px; }
@@ -831,7 +843,6 @@ def dashboard():
             .links-externos a:hover { background: #38bdf8; color: #0b132b; }
 
             .edu-text { font-size: 0.82rem; color: #cbd5e1; line-height: 1.4; }
-            .edu-text ul { padding-left: 16px; margin: 6px 0; }
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
             
             #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -840,17 +851,26 @@ def dashboard():
             .manual-tag { font-weight: bold; display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; margin-right: 4px; }
             .btn-reorder { background: #3a506b; color: #fff; border: none; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; margin-right: 2px; }
             .btn-reorder:hover { background: #38bdf8; color: #0b132b; }
+            
+            /* Estilos para etiquetas de la calculadora */
+            .input-group { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
+            .input-group label { font-size: 0.72rem; color: #38bdf8; margin-bottom: 3px; font-weight: bold; }
         </style>
+        <!-- Google Translate Integration -->
+        <script type="text/javascript">
+            function googleTranslateElementInit() {
+                new google.translate.TranslateElement({pageLanguage: 'es', includedLanguages: 'es,en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
+            }
+        </script>
+        <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
     </head>
     <body>
-        <div id="loading-banner">🔄 <span id="txt-loading">Actualizando temporalidad y datos...</span></div>
+        <div id="loading-banner">🔄 <span>Actualizando datos...</span></div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
             <div></div>
             <h1>📊 Trading Monitor Pro</h1>
-            <div>
-                <button onclick="toggleIdioma()" id="btn-lang" style="background:#3a506b; color:#fff; font-size:0.75rem; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">EN / ES</button>
-            </div>
+            <div id="google_translate_element"></div>
         </div>
 
         <div class="reloj-box">
@@ -863,19 +883,20 @@ def dashboard():
                 <input type="text" id="new-ticker" placeholder="Buscar Ticker..." list="datalist-tickers" onkeydown="if(event.key==='Enter') agregarActivo()" autocomplete="off" />
                 <datalist id="datalist-tickers"></datalist>
             </div>
-            <button onclick="agregarActivo()" id="btn-add">+ Seguir Activo</button>
+            <button onclick="agregarActivo()">+ Seguir Activo</button>
             <select id="select-tf" onchange="cambiarTimeframe(this.value)">
                 <option value="1h">1H (Intradiario)</option>
                 <option value="4h">4H (Swing)</option>
                 <option value="1d">1D (Diario)</option>
             </select>
+            <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Cambiar Vista (Cuadrícula / Lista)</button>
         </div>
 
         <div class="container">
             <div>
                 <div class="cartera-panel">
                     <div class="feed-title">
-                        <span id="title-cartera">💼 Mi Cartera y Gestión de Riesgo</span>
+                        <span>💼 Mi Cartera y Gestión de Riesgo</span>
                     </div>
                     
                     <div class="metrics-bar" id="resumen-cartera">
@@ -883,51 +904,62 @@ def dashboard():
                         <span>Rendimiento: <b>0.00%</b></span>
                     </div>
 
-                    <!-- CALCULADORA DE RIESGO EXPLICITA -->
-                    <div id="risk-calc-box" style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:8px; border:1px solid #3a506b; font-size:0.78rem; color:#94a3b8;">
-                        🧮 <span id="txt-risk-help">Calculadora de Tamaño: Ingresa tu riesgo en USD y los precios de tu broker. El sistema calculará automáticamente las acciones exactas.</span>
-                    </div>
-
-                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
-                        <input type="text" id="c-ticker" placeholder="Activo" style="width:70px;" />
-                        <input type="number" id="c-precio" placeholder="Entrada $" style="width:85px;" step="any" />
-                        <input type="number" id="c-sl" placeholder="SL $" style="width:75px;" step="any" />
-                        <input type="number" id="c-tp" placeholder="TP $" style="width:75px;" step="any" />
-                        <input type="number" id="c-riesgo" placeholder="Riesgo $" style="width:75px;" value="50" step="any" title="Riesgo máximo en USD" />
-                        <button onclick="registrarPosicion()" id="btn-save-pos">Guardar</button>
+                    <!-- CALCULADORA DE RIESGO CON ETIQUETAS EXPLÍCITAS -->
+                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; background:#0b132b; padding:10px; border-radius:6px; border:1px solid #3a506b;">
+                        <div class="input-group">
+                            <label>ACTIVO</label>
+                            <input type="text" id="c-ticker" placeholder="Ej: NVDA" style="width:100%; text-transform:uppercase;" />
+                        </div>
+                        <div class="input-group">
+                            <label>ENTRADA ($)</label>
+                            <input type="number" id="c-precio" placeholder="0.00" style="width:100%;" step="any" />
+                        </div>
+                        <div class="input-group">
+                            <label>STOP LOSS ($)</label>
+                            <input type="number" id="c-sl" placeholder="0.00" style="width:100%;" step="any" />
+                        </div>
+                        <div class="input-group">
+                            <label>TAKE PROFIT ($)</label>
+                            <input type="number" id="c-tp" placeholder="0.00" style="width:100%;" step="any" />
+                        </div>
+                        <div class="input-group">
+                            <label>RIESGO USD ($)</label>
+                            <input type="number" id="c-riesgo" placeholder="50" style="width:100%;" value="50" step="any" title="Dinero máximo a arriesgar" />
+                        </div>
+                        <div style="display:flex; align-items:flex-end;">
+                            <button onclick="registrarPosicion()" style="height:38px; background:#10b981; color:#fff;">Guardar</button>
+                        </div>
                     </div>
                     <div id="lista-cartera">Sin posiciones guardadas.</div>
                 </div>
 
-                <h3 id="title-watched">Activos bajo Monitoreo Activo</h3>
+                <h3>Activos bajo Monitoreo Activo</h3>
                 <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
             </div>
             
             <div>
                 <div class="edu-panel">
-                    <div class="feed-title" id="title-guide">📖 Manual PRO & Algoritmo</div>
-                    <button id="btn-toggle-manual" onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales</button>
+                    <div class="feed-title">📖 Manual PRO & Algoritmo</div>
+                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales</button>
                     
                     <div id="box-manual" class="manual-box" style="display:none;">
-                        <span id="manual-content">
-                            <b>🏷️ Significado de Señales:</b><br>
-                            • <span class="manual-tag entrada-ok">GOOD ENTRY</span> Quiebre validado con volumen y RSI sano.<br>
-                            • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
-                            • <span class="manual-tag entrada-rebote">ZONE BOUNCE</span> Rebote por sobreventa (RSI ≤ 30).<br>
-                            • <span class="manual-tag entrada-warn">FALSE BREAKOUT</span> Quiebre sin volumen (Bull Trap).<br><br>
-                            <b>🧮 Calculadora de Riesgo:</b> Define cuánto dinero arriesgar (ej. $50). La app dimensiona tus acciones.<br>
-                            <b>↕️ Reordenar:</b> Usa las flechas (⬆️ ⬇️) en cada tarjeta para ordenar tu lista de seguimiento a gusto.
-                        </span>
+                        <b>🏷️ Significado de Señales:</b><br>
+                        • <span class="manual-tag entrada-ok">BUENA ENTRADA</span> Quiebre validado con volumen y RSI sano.<br>
+                        • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
+                        • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
+                        • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
+                        <b>🧮 Calculadora de Riesgo:</b> Ingresa tu riesgo máximo en USD (casilla 'RIESGO USD'). La app dimensiona tus acciones automáticamente.<br>
+                        <b>↕️ Reordenar:</b> Usa las flechas (⬆️ ⬇️) en cada tarjeta para ordenar tu lista de seguimiento al instante de forma local.
                     </div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title" id="title-scanner">🤖 Escáner Dinámico de Oportunidades</div>
+                    <div class="feed-title">🤖 Escáner Dinámico de Oportunidades</div>
                     <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando Momentum y Rebotes...</div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title" id="title-alerts">🚨 Feed de Alertas en Vivo</div>
+                    <div class="feed-title">🚨 Feed de Alertas en Vivo</div>
                     <div id="lista-alertas">Sin señales recientes.</div>
                 </div>
             </div>
@@ -935,78 +967,24 @@ def dashboard():
 
         <script>
             let eventoSource = null;
-            let currentLang = 'es';
             let ordenActivosGlobal = [];
-
-            const dictionary = {
-                es: {
-                    loading: "🔄 Recalculando marcos temporales y descargando datos...",
-                    add: "+ Seguir Activo",
-                    portfolio: "💼 Mi Cartera y Gestión de Riesgo",
-                    save: "Guardar",
-                    watched: "Activos bajo Monitoreo Activo",
-                    guide: "📖 Manual PRO & Algoritmo",
-                    btnManual: "📘 Ver / Ocultar Guía de Señales",
-                    scanner: "🤖 Escáner Dinámico de Oportunidades",
-                    alerts: "🚨 Feed de Alertas en Vivo",
-                    emptyPortfolio: "Sin posiciones guardadas.",
-                    emptyWatched: "Sin activos bajo monitoreo.",
-                    emptyScanner: "Buscando Momentum y Rebotes...",
-                    emptyAlerts: "Sin señales recientes.",
-                    riskHelp: "🧮 Calculadora de Tamaño: Ingresa tu riesgo en USD y los precios de tu broker. El sistema calculará automáticamente las acciones exactas.",
-                    manualTxt: `<b>🏷️ Significado de Señales:</b><br>
-                            • <span class="manual-tag entrada-ok">BUENA ENTRADA</span> Quiebre validado con volumen y RSI sano.<br>
-                            • <span class="manual-tag entrada-prep">PREPARANDO</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
-                            • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
-                            • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
-                            <b>🧮 Calculadora de Riesgo:</b> Define cuánto dinero arriesgar (ej. $50). La app dimensiona tus acciones.<br>
-                            <b>↕️ Reordenar:</b> Usa las flechas (⬆️ ⬇️) en cada tarjeta para ordenar tu lista de seguimiento a gusto.`
-                },
-                en: {
-                    loading: "🔄 Recalculating timeframes and fetching data...",
-                    add: "+ Track Asset",
-                    portfolio: "💼 My Portfolio & Risk Management",
-                    save: "Save",
-                    watched: "Monitored Assets",
-                    guide: "📖 PRO Manual & Algorithm",
-                    btnManual: "📘 Show / Hide Signals Guide",
-                    scanner: "🤖 Dynamic Scanner (Momentum & Bounces)",
-                    alerts: "🚨 Live Alerts Feed",
-                    emptyPortfolio: "No saved positions.",
-                    emptyWatched: "No monitored assets.",
-                    emptyScanner: "Scanning Momentum and Bounces...",
-                    emptyAlerts: "No recent signals.",
-                    riskHelp: "🧮 Position Sizing Calculator: Enter your risk in USD and your broker prices. The system will calculate exact shares automatically.",
-                    manualTxt: `<b>🏷️ Signals Meaning:</b><br>
-                            • <span class="manual-tag entrada-ok">GOOD ENTRY</span> Breakout validated with volume & healthy RSI.<br>
-                            • <span class="manual-tag entrada-prep">PREPARING</span> Pullback at Fibonacci golden zones (50% / 61.8%).<br>
-                            • <span class="manual-tag entrada-rebote">ZONE BOUNCE</span> Oversold bounce (RSI ≤ 30).<br>
-                            • <span class="manual-tag entrada-warn">FALSE BREAKOUT</span> Breakout without volume (Bull Trap).<br><br>
-                            <b>🧮 Risk Calculator:</b> Define how much money to risk (e.g. $50). The app sizes your shares.<br>
-                            <b>↕️ Reorder:</b> Use the arrows (⬆️ ⬇️) on each card to sort your watchlist.`
-                }
-            };
+            let modoLista = false;
 
             function toggleManual() {
                 const el = document.getElementById('box-manual');
                 el.style.display = el.style.display === 'none' ? 'block' : 'none';
             }
 
-            function toggleIdioma() {
-                currentLang = currentLang === 'es' ? 'en' : 'es';
-                document.getElementById('btn-lang').innerText = currentLang.toUpperCase();
-                document.getElementById('txt-loading').innerText = dictionary[currentLang].loading;
-                document.getElementById('btn-add').innerText = dictionary[currentLang].add;
-                document.getElementById('title-cartera').innerText = dictionary[currentLang].portfolio;
-                document.getElementById('btn-save-pos').innerText = dictionary[currentLang].save;
-                document.getElementById('title-watched').innerText = dictionary[currentLang].watched;
-                document.getElementById('title-guide').innerText = dictionary[currentLang].guide;
-                document.getElementById('btn-toggle-manual').innerText = dictionary[currentLang].btnManual;
-                document.getElementById('title-scanner').innerText = dictionary[currentLang].scanner;
-                document.getElementById('title-alerts').innerText = dictionary[currentLang].alerts;
-                document.getElementById('txt-risk-help').innerText = dictionary[currentLang].riskHelp;
-                document.getElementById('manual-content').innerHTML = dictionary[currentLang].manualTxt;
-                actualizarApp(true);
+            function toggleVista() {
+                modoLista = !modoLista;
+                const grid = document.getElementById('grid-mercado');
+                if(modoLista) {
+                    grid.classList.add('list-view');
+                    document.getElementById('btn-vista').innerText = "🔲 Vista Cuadrícula";
+                } else {
+                    grid.classList.remove('list-view');
+                    document.getElementById('btn-vista').innerText = "📋 Vista Lista";
+                }
             }
 
             function mostrarBannerCarga(mostrar) {
@@ -1057,21 +1035,22 @@ def dashboard():
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
-            async function moverActivo(index, direccion) {
-                let nuevoOrden = [...ordenActivosGlobal];
+            async function moverActivoLocal(index, direccion) {
                 const targetIndex = index + direccion;
-                if (targetIndex < 0 || targetIndex >= nuevoOrden.length) return;
+                if (targetIndex < 0 || targetIndex >= ordenActivosGlobal.length) return;
                 
-                const temp = nuevoOrden[index];
-                nuevoOrden[index] = nuevoOrden[targetIndex];
-                nuevoOrden[targetIndex] = temp;
+                const temp = ordenActivosGlobal[index];
+                ordenActivosGlobal[index] = ordenActivosGlobal[targetIndex];
+                ordenActivosGlobal[targetIndex] = temp;
 
-                await fetch('/api/reorder', {
+                renderizarGridMercado();
+
+                // Guardado asíncrono en backend sin bloquear UI
+                fetch('/api/reorder', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ activos: nuevoOrden })
+                    body: JSON.stringify({ activos: ordenActivosGlobal })
                 });
-                actualizarApp(true);
             }
 
             async function eliminarActivo(ticker) {
@@ -1113,6 +1092,8 @@ def dashboard():
                 actualizarApp(true);
             }
 
+            let mercadoGlobalData = {};
+
             async function actualizarApp(forzarRender = false) {
                 try {
                     const res = await fetch('/api/data');
@@ -1120,6 +1101,7 @@ def dashboard():
                     
                     document.getElementById('select-tf').value = timeframe;
                     if(activos_orden) ordenActivosGlobal = activos_orden;
+                    if(mercado) mercadoGlobalData = mercado;
                     
                     const datalist = document.getElementById('datalist-tickers');
                     if(datalist.children.length === 0 && catalogo) {
@@ -1144,8 +1126,8 @@ def dashboard():
                             capitalTotal += p.inversion_total || 0;
                             pnlSuma += p.pnl_porcentaje || 0;
                             const pnlColor = p.pnl_porcentaje >= 0 ? '#4ade80' : '#f87171';
-                            let slColor = p.analisis_sl.includes("Valid") || p.analisis_sl.includes("Correcto") ? '#4ade80' : '#f87171';
-                            if (p.analisis_sl.includes("Sube SL") || p.analisis_sl.includes("Trailing Stop") || p.analisis_sl.includes("Secure")) {
+                            let slColor = p.analisis_sl.includes("Correcto") ? '#4ade80' : '#f87171';
+                            if (p.analisis_sl.includes("Sube SL") || p.analisis_sl.includes("Trailing") || p.analisis_sl.includes("Asegura")) {
                                 slColor = '#facc15';
                             }
                             divCartera.innerHTML += `
@@ -1155,8 +1137,8 @@ def dashboard():
                                         <span style="color:${pnlColor};">${p.pnl_porcentaje >= 0 ? '+' : ''}${p.pnl_porcentaje}%</span>
                                         <button onclick="eliminarPosicion('${p.ticker}')" style="background:none;color:#ef4444;border:none;cursor:pointer;">✕</button>
                                     </div>
-                                    <div style="font-size:0.8rem; margin-top:4px;">Entry: $${p.precio_compra} | Cur: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
-                                    <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Shares: ${p.acciones || 0} ($${p.inversion_total || 0})</div>
+                                    <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
+                                    <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Acciones: ${p.acciones || 0} ($${p.inversion_total || 0})</div>
                                     <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};">SL Audit: ${p.analisis_sl}</div>
                                 </div>
                             `;
@@ -1164,11 +1146,11 @@ def dashboard():
                         const pnlPromedio = (pnlSuma / cartera.length).toFixed(2);
                         document.getElementById('resumen-cartera').innerHTML = `
                             <span>Capital: <b>$${capitalTotal.toFixed(2)}</b></span>
-                            <span>Return: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>
+                            <span>Rendimiento: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>
                         `;
                     } else { 
-                        divCartera.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyPortfolio}</span>`;
-                        document.getElementById('resumen-cartera').innerHTML = `<span>Capital: <b>$0.00</b></span><span>Return: <b>0.00%</b></span>`;
+                        divCartera.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>`;
+                        document.getElementById('resumen-cartera').innerHTML = `<span>Capital: <b>$0.00</b></span><span>Rendimiento: <b>0.00%</b></span>`;
                     }
 
                     const divSug = document.getElementById('lista-sugerencias');
@@ -1176,73 +1158,23 @@ def dashboard():
                         divSug.innerHTML = '';
                         sugerencias.forEach(s => {
                             let badgeStyle = "color:#4ade80;";
-                            if(s.estado.includes("BOUNCE") || s.estado.includes("REBOTE")) badgeStyle = "color:#c084fc;";
+                            if(s.estado.includes("REBOTE")) badgeStyle = "color:#c084fc;";
                             divSug.innerHTML += `
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
-                                    <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;">⭐ ${s.ticker} at $${s.precio} (RSI: ${s.rsi})</div>
+                                    <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio} (RSI: ${s.rsi})</div>
                                     <div style="font-size:0.75rem; color:#facc15; margin: 2px 0;">${s.estado}</div>
                                     <div style="display:flex; gap:6px; margin-top:6px;">
-                                        <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.7rem; padding:4px 8px;">+ Track</button>
-                                        <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.7rem; padding:4px 8px; background:#10b981; color:#fff;">💼 Trade</button>
+                                        <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.7rem; padding:4px 8px;">+ Seguir</button>
+                                        <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.7rem; padding:4px 8px; background:#10b981; color:#fff;">💼 Operar</button>
                                     </div>
                                 </div>
                             `;
                         });
                     } else {
-                        divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyScanner}</span>`;
+                        divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Buscando configuraciones óptimas...</span>`;
                     }
 
-                    const grid = document.getElementById('grid-mercado');
-                    if (ordenActivosGlobal.length > 0 && Object.keys(mercado).length > 0) {
-                        grid.innerHTML = '';
-                        ordenActivosGlobal.forEach((ticker, idx) => {
-                            const info = mercado[ticker];
-                            if(!info) return;
-                            const isBull = info.tendencia === 'ALZA';
-                            let claseEntrada = 'entrada-wait';
-                            if (info.estado_entrada.includes("FALSE BREAKOUT") || info.estado_entrada.includes("FALSO")) claseEntrada = 'entrada-warn';
-                            else if (info.estado_entrada.includes("GOOD ENTRY") || info.estado_entrada.includes("BUENA")) claseEntrada = 'entrada-ok';
-                            else if (info.estado_entrada.includes("PREPARING") || info.estado_entrada.includes("PREPARANDO")) claseEntrada = 'entrada-prep';
-                            else if (info.estado_entrada.includes("BOUNCE") || info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
-
-                            grid.innerHTML += `
-                                <div class="card">
-                                    <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Remove">✕</button>
-                                    <div style="position:absolute; top:8px; right:32px;">
-                                        <button class="btn-reorder" onclick="moverActivo(${idx}, -1)">⬆️</button>
-                                        <button class="btn-reorder" onclick="moverActivo(${idx}, 1)">⬇️</button>
-                                    </div>
-                                    <div class="card-header" style="padding-right: 70px;">
-                                        <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
-                                        <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
-                                    </div>
-                                    <div class="price">$${info.precio}</div>
-                                    <div class="${claseEntrada}">${info.estado_entrada}</div>
-                                    
-                                    <div class="sparkline-container">
-                                        <svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none">
-                                            <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
-                                        </svg>
-                                    </div>
-
-                                    <div class="levels-box">
-                                        <div class="stat"><span>🛡️ Support (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
-                                        <div class="stat"><span>🎯 Target (TP):</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
-                                        <div class="stat" style="margin-top:6px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
-                                        <div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${info.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${info.tendencia_macro}</span></div>
-                                        <div class="stat"><span>📈 Volume:</span> <span style="font-weight:bold; color:${info.vol_valido ? '#4ade80' : '#f87171'}">${info.vol_valido ? 'OPTIMAL' : 'LOW'}</span></div>
-                                    </div>
-
-                                    <div style="display:flex; gap:6px; margin-top:8px;">
-                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Trade</button>
-                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TradingView</a>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        grid.innerHTML = `<p style="color:#94a3b8;">${dictionary[currentLang].emptyWatched}</p>`;
-                    }
+                    renderizarGridMercado();
 
                     const lista = document.getElementById('lista-alertas');
                     if (alertas.length > 0) {
@@ -1252,12 +1184,70 @@ def dashboard():
                                     <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
                                 </div>
                                 <div style="font-size:0.78rem; margin-top:3px;">${a.evento}</div>
+                                <div style="display:flex; gap:6px; margin-top:6px;">
+                                    <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:2px 6px;">+ Seguir Activo</button>
+                                    <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                </div>
                             </div>
                         `).join('');
                     } else {
-                        lista.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">${dictionary[currentLang].emptyAlerts}</span>`;
+                        lista.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin señales recientes.</span>`;
                     }
                 } catch (e) { console.error(e); }
+            }
+
+            function renderizarGridMercado() {
+                const grid = document.getElementById('grid-mercado');
+                if (ordenActivosGlobal.length > 0 && Object.keys(mercadoGlobalData).length > 0) {
+                    grid.innerHTML = '';
+                    ordenActivosGlobal.forEach((ticker, idx) => {
+                        const info = mercadoGlobalData[ticker];
+                        if(!info) return;
+                        const isBull = info.tendencia === 'ALZA';
+                        let claseEntrada = 'entrada-wait';
+                        if (info.estado_entrada.includes("FALSO QUIEBRE")) claseEntrada = 'entrada-warn';
+                        else if (info.estado_entrada.includes("BUENA ENTRADA")) claseEntrada = 'entrada-ok';
+                        else if (info.estado_entrada.includes("PREPARANDO")) claseEntrada = 'entrada-prep';
+                        else if (info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
+
+                        grid.innerHTML += `
+                            <div class="card">
+                                <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
+                                <div style="position:absolute; top:8px; right:32px;">
+                                    <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
+                                    <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
+                                </div>
+                                <div class="card-header" style="padding-right: 70px;">
+                                    <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
+                                    <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
+                                </div>
+                                <div class="price">$${info.precio}</div>
+                                <div class="${claseEntrada}">${info.estado_entrada}</div>
+                                
+                                <div class="sparkline-container">
+                                    <svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none">
+                                        <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
+                                    </svg>
+                                </div>
+
+                                <div class="levels-box">
+                                    <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
+                                    <div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
+                                    <div class="stat" style="margin-top:6px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
+                                    <div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${info.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${info.tendencia_macro}</span></div>
+                                    <div class="stat"><span>📈 Volumen:</span> <span style="font-weight:bold; color:${info.vol_valido ? '#4ade80' : '#f87171'}">${info.vol_valido ? 'ÓPTIMO' : 'BAJO'}</span></div>
+                                </div>
+
+                                <div style="display:flex; gap:6px; margin-top:8px;">
+                                    <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button>
+                                    <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TradingView</a>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    grid.innerHTML = `<p style="color:#94a3b8;">Sin activos bajo monitoreo.</p>`;
+                }
             }
 
             actualizarApp(true);
