@@ -147,37 +147,86 @@ def db_set(campo, valor):
 
 
 CATALOGO_TICKERS = {
-    "AAPL": "Apple Inc.",
-    "MSFT": "Microsoft Corporation",
-    "AMZN": "Amazon.com Inc.",
-    "NVDA": "NVIDIA Corporation",
-    "GOOGL": "Alphabet Inc.",
-    "META": "Meta Platforms Inc.",
-    "TSLA": "Tesla Inc.",
-    "NFLX": "Netflix Inc.",
-    "AMD": "Advanced Micro Devices",
-    "COIN": "Coinbase Global",
-    "MSTR": "MicroStrategy Inc.",
-    "PLTR": "Palantir Technologies",
-    "SPY": "S&P 500 ETF",
-    "QQQ": "Nasdaq 100 ETF",
-    "INTC": "Intel Corp.",
-    "BA": "Boeing Co.",
-    "JPM": "JPMorgan Chase",
-    "DIS": "Walt Disney Co.",
-    "XOM": "Exxon Mobil",
-    "BABA": "Alibaba Group",
-    "BTC-USD": "Bitcoin USD",
-    "ETH-USD": "Ethereum USD",
-    "EURUSD=X": "EUR/USD Forex",
-    "GBPUSD=X": "GBP/USD Forex",
-    "ARM": "ARM Holdings",
-    "SMCI": "Super Micro Computer",
-    "MU": "Micron Technology",
-    "QCOM": "Qualcomm Inc.",
-    "AVGO": "Broadcom Inc.",
-    "MARA": "Marathon Digital",
-    "RIOT": "Riot Platforms",
+    "AAPL": {
+        "nombre": "Apple Inc.",
+        "desc": "Gigante tecnológico de consumo, software y servicios digitales.",
+        "estrategia": "Estrategia de ruptura de máximos con soporte en medias móviles.",
+    },
+    "MSFT": {
+        "nombre": "Microsoft Corporation",
+        "desc": "Liderazgo en cloud computing (Azure) y software empresarial.",
+        "estrategia": "Seguimiento de tendencia alcista de largo plazo en gráfico diario.",
+    },
+    "AMZN": {
+        "nombre": "Amazon.com Inc.",
+        "desc": "E-commerce global y servicios de infraestructura web.",
+        "estrategia": "Operativa de rangos intradiarios y rebotes en soportes Fibonacci.",
+    },
+    "NVDA": {
+        "nombre": "NVIDIA Corporation",
+        "desc": "Pionero absoluto en unidades de procesamiento gráfico y semiconductores IA.",
+        "estrategia": "Alta volatilidad; exige confirmación estricta de volumen en rupturas.",
+    },
+    "GOOGL": {
+        "nombre": "Alphabet Inc.",
+        "desc": "Ecosistema publicitario global, búsquedas y soluciones de inteligencia artificial.",
+        "estrategia": "Ideal para operativa institucional en swing trading (4H / 1D).",
+    },
+    "META": {
+        "nombre": "Meta Platforms Inc.",
+        "desc": "Redes sociales masivas e inversión en infraestructura tecnológica.",
+        "estrategia": "Monitoreo de divergencias en RSI y quiebres de resistencia clave.",
+    },
+    "TSLA": {
+        "nombre": "Tesla Inc.",
+        "desc": "Vehículos eléctricos, almacenamiento energético y conducción autónoma.",
+        "estrategia": "Atención a zonas de sobreventa extrema (RSI <= 30) para rebotes rápidos.",
+    },
+    "NFLX": {
+        "nombre": "Netflix Inc.",
+        "desc": "Plataforma líder global de streaming y entretenimiento en la nube.",
+        "estrategia": "Busca impulsos de momentum alcista tras publicación de métricas.",
+    },
+    "AMD": {
+        "nombre": "Advanced Micro Devices",
+        "desc": "Procesadores de alta computación y tarjetas gráficas competitivas.",
+        "estrategia": "Correlación directa con flujos de volumen institucional.",
+    },
+    "COIN": {
+        "nombre": "Coinbase Global",
+        "desc": "Plataforma centralizada líder para intercambio de criptoactivos.",
+        "estrategia": "Alta correlación con el comportamiento macro de Bitcoin.",
+    },
+    "MSTR": {
+        "nombre": "MicroStrategy Inc.",
+        "desc": "Empresa de software corporativo con tesorería masiva en Bitcoin.",
+        "estrategia": "Movimientos apalancados especulativos de alta volatilidad.",
+    },
+    "PLTR": {
+        "nombre": "Palantir Technologies",
+        "desc": "Software de análisis de macro datos para defensa e industrias.",
+        "estrategia": "Patrones de quiebre de resistencia con fuerte inyección de volumen.",
+    },
+    "SPY": {
+        "nombre": "S&P 500 ETF",
+        "desc": "Fondo indexado que replica las 500 empresas más grandes de EE.UU.",
+        "estrategia": "El termómetro principal del mercado; excelente para filtrar la tendencia base.",
+    },
+    "QQQ": {
+        "nombre": "Nasdaq 100 ETF",
+        "desc": "Fondo enfocado en las 100 mayores empresas tecnológicas del índice.",
+        "estrategia": "Operativa intradiaria ágil apalancada en cruces de medias móviles (SMA 9/21).",
+    },
+    "BTC-USD": {
+        "nombre": "Bitcoin USD",
+        "desc": "Activo digital descentralizado de referencia global.",
+        "estrategia": "Monitoreo 24/7 de niveles psicológicos y retrocesos de Fibonacci.",
+    },
+    "ETH-USD": {
+        "nombre": "Ethereum USD",
+        "desc": "Red principal para contratos inteligentes y finanzas descentralizadas.",
+        "estrategia": "Estructuras de consolidación seguidas de rupturas con alto volumen.",
+    },
 }
 
 POOL_ESCANER_DINAMICO = [
@@ -251,10 +300,10 @@ def obtener_info_horario():
     )
     diff = proximo_lunes - ny_time
     horas, rem = divmod(int(diff.total_seconds()), 3600)
-    minutos, _ = divmod(rem, 60)
+    minutos, segundos = divmod(rem, 60)
     return (
         "🔴 CERRADO (Fin de semana)",
-        f"Abre en {horas // 24}d {horas % 24}h {minutos}m",
+        f"Abre en {horas // 24}d {horas % 24}h {minutos}m {segundos}s",
     )
 
   m_open = ny_time.replace(hour=9, minute=30, second=0, microsecond=0)
@@ -265,15 +314,15 @@ def obtener_info_horario():
     diff = m_open - ny_time
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
-    m, _ = divmod(r, 60)
-    return "🔴 CERRADO (Pre-apertura)", f"Abre en {h}h {m}m"
+    m, s = divmod(r, 60)
+    return "🔴 CERRADO (Pre-apertura)", f"Abre en {h}h {m}m {s}s"
   elif ny_time > m_close:
     proxima = m_open + timedelta(days=1)
     diff = proxima - ny_time
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
-    m, _ = divmod(r, 60)
-    return "🔴 CERRADO", f"Abre mañana en {h}h {m}m"
+    m, s = divmod(r, 60)
+    return "🔴 CERRADO", f"Abre mañana en {h}h {m}m {s}s"
   elif ny_time >= pre_close:
     diff = m_close - ny_time
     seg = int(diff.total_seconds())
@@ -283,8 +332,8 @@ def obtener_info_horario():
     diff = m_close - ny_time
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
-    m, _ = divmod(r, 60)
-    return "🟢 ABIERTO (NYSE)", f"Cierra en {h}h {m}m"
+    m, s = divmod(r, 60)
+    return "🟢 ABIERTO (NYSE)", f"Cierra en {h}h {m}m {s}s"
 
 
 def obtener_config_tf(tf: str):
@@ -437,8 +486,17 @@ def procesar_ticker(symbol, tf_local):
         points.append(f"{x},{y}")
       sparkline_svg = " ".join(points)
 
+      meta_info = CATALOGO_TICKERS.get(symbol, {
+          "nombre": symbol,
+          "desc": "Activo financiero cotizado en mercados globales.",
+          "estrategia": "Análisis técnico estándar basado en soportes, resistencias y volumen.",
+      })
+
       resultado = {
           "symbol": symbol,
+          "nombre": meta_info["nombre"],
+          "descripcion": meta_info["desc"],
+          "estrategia_explicacion": meta_info["estrategia"],
           "timeframe": tf_local.upper(),
           "precio": precio,
           "resistencia": resistencia,
@@ -794,9 +852,11 @@ def dashboard():
             * { box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b132b; color: #f8fafc; margin: 0; padding: 12px; }
             h1 { text-align: center; color: #38bdf8; font-size: 1.6rem; margin: 5px 0; }
-            .reloj-box { text-align: center; margin-bottom: 16px; }
+            .reloj-box { text-align: center; margin-bottom: 16px; position: relative; }
             .reloj { font-weight: bold; font-size: 1rem; }
             .reloj-sub { font-size: 0.8rem; color: #94a3b8; margin-top: 2px; }
+            .live-indicator { display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; margin-left: 6px; box-shadow: 0 0 8px #22c55e; animation: pulse 1.5s infinite; }
+            @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
             
             .control-panel { max-width: 1200px; margin: 0 auto 16px auto; background: #1c2541; padding: 12px; border-radius: 10px; display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; border: 1px solid #3a506b; }
             input[type="text"], input[type="number"], select { background: #0b132b; border: 1px solid #3a506b; color: #fff; padding: 8px; border-radius: 6px; font-size: 0.9rem; }
@@ -815,6 +875,17 @@ def dashboard():
             .ticker { font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 6px; }
             .price { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
             
+            /* VISTA DE LISTA COMPACTA HORIZONTAL */
+            .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 12px; flex-wrap: wrap; }
+            .grid-activos.list-view .card-header { margin-bottom: 0; width: 140px; }
+            .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 90px; }
+            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 180px; text-align: center; }
+            .grid-activos.list-view .sparkline-container { width: 110px; height: 25px; margin-top: 0; }
+            .grid-activos.list-view .levels-box { display: none; }
+            .grid-activos.list-view .card-buttons { display: flex; gap: 4px; margin-top: 0; }
+            .grid-activos.list-view .btn-remove { position: static; }
+            .grid-activos.list-view .reorder-group { display: flex; gap: 2px; }
+
             .badge { padding: 3px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: bold; }
             .tf-badge { background: #3a506b; color: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; }
             .bullish { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
@@ -842,21 +913,23 @@ def dashboard():
             .links-externos a { background: #0b132b; color: #38bdf8; border: 1px solid #3a506b; padding: 3px 6px; border-radius: 4px; text-decoration: none; font-weight: bold; }
             .links-externos a:hover { background: #38bdf8; color: #0b132b; }
 
-            .edu-text { font-size: 0.82rem; color: #cbd5e1; line-height: 1.4; }
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
             
             #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
 
             .manual-box { background: #0b132b; border: 1px solid #38bdf8; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 0.8rem; color: #cbd5e1; }
             .manual-tag { font-weight: bold; display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; margin-right: 4px; }
-            .btn-reorder { background: #3a506b; color: #fff; border: none; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; margin-right: 2px; }
+            .btn-reorder { background: #3a506b; color: #fff; border: none; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; }
             .btn-reorder:hover { background: #38bdf8; color: #0b132b; }
             
-            /* Estilos para etiquetas de la calculadora */
             .input-group { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
             .input-group label { font-size: 0.72rem; color: #38bdf8; margin-bottom: 3px; font-weight: bold; }
+
+            /* Modal de Información y Estrategia */
+            #info-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center; }
+            .modal-content { background: #1c2541; padding: 20px; border-radius: 10px; border: 1px solid #38bdf8; width: 90%; max-width: 500px; color: #f8fafc; position: relative; }
+            .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer; }
         </style>
-        <!-- Google Translate Integration -->
         <script type="text/javascript">
             function googleTranslateElementInit() {
                 new google.translate.TranslateElement({pageLanguage: 'es', includedLanguages: 'es,en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
@@ -874,7 +947,7 @@ def dashboard():
         </div>
 
         <div class="reloj-box">
-            <div id="reloj-mercado" class="reloj">...</div>
+            <div id="reloj-mercado" class="reloj">... <span class="live-indicator" title="Sincronización en vivo activa"></span></div>
             <div id="reloj-cuenta" class="reloj-sub">...</div>
         </div>
         
@@ -889,7 +962,7 @@ def dashboard():
                 <option value="4h">4H (Swing)</option>
                 <option value="1d">1D (Diario)</option>
             </select>
-            <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Cambiar Vista (Cuadrícula / Lista)</button>
+            <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Vista Lista Compacta</button>
         </div>
 
         <div class="container">
@@ -904,7 +977,6 @@ def dashboard():
                         <span>Rendimiento: <b>0.00%</b></span>
                     </div>
 
-                    <!-- CALCULADORA DE RIESGO CON ETIQUETAS EXPLÍCITAS -->
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; background:#0b132b; padding:10px; border-radius:6px; border:1px solid #3a506b;">
                         <div class="input-group">
                             <label>ACTIVO</label>
@@ -948,8 +1020,7 @@ def dashboard():
                         • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
                         • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
                         • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
-                        <b>🧮 Calculadora de Riesgo:</b> Ingresa tu riesgo máximo en USD (casilla 'RIESGO USD'). La app dimensiona tus acciones automáticamente.<br>
-                        <b>↕️ Reordenar:</b> Usa las flechas (⬆️ ⬇️) en cada tarjeta para ordenar tu lista de seguimiento al instante de forma local.
+                        <b>🧮 Auditoría SL Cartera:</b> El estado "Analizando..." se actualiza segundo a segundo al recibir precios nuevos, auditando si tu Stop Loss está seguro, muy corto, o si ya califica para asegurar ganancias (Break Even).
                     </div>
                 </div>
 
@@ -965,10 +1036,24 @@ def dashboard():
             </div>
         </div>
 
+        <!-- MODAL DE INFORMACIÓN Y ESTRATEGIA -->
+        <div id="info-modal">
+            <div class="modal-content">
+                <button class="modal-close" onclick="cerrarModal()">✕</button>
+                <h3 id="modal-titulo" style="color:#38bdf8; margin-top:0;">Información del Activo</h3>
+                <p><b>Descripción y Contexto:</b></p>
+                <p id="modal-desc" style="color:#cbd5e1; font-size:0.85rem;"></p>
+                <p><b>Estrategia e Indicadores:</b></p>
+                <p id="modal-estrategia" style="color:#cbd5e1; font-size:0.85rem;"></p>
+            </div>
+        </div>
+
         <script>
             let eventoSource = null;
             let ordenActivosGlobal = [];
             let modoLista = false;
+            let mercadoGlobalData = {};
+            let catalogoGlobal = {};
 
             function toggleManual() {
                 const el = document.getElementById('box-manual');
@@ -983,8 +1068,28 @@ def dashboard():
                     document.getElementById('btn-vista').innerText = "🔲 Vista Cuadrícula";
                 } else {
                     grid.classList.remove('list-view');
-                    document.getElementById('btn-vista').innerText = "📋 Vista Lista";
+                    document.getElementById('btn-vista').innerText = "📋 Vista Lista Compacta";
                 }
+                renderizarGridMercado();
+            }
+
+            function mostrarModal(ticker) {
+                const info = mercadoGlobalData[ticker] || (catalogoGlobal[ticker] ? {
+                    symbol: ticker,
+                    nombre: catalogoGlobal[ticker].nombre,
+                    descripcion: catalogoGlobal[ticker].desc,
+                    estrategia_explicacion: catalogoGlobal[ticker].estrategia
+                } : null);
+
+                if(!info) return;
+                document.getElementById('modal-titulo').innerText = `${ticker} - ${info.nombre || ''}`;
+                document.getElementById('modal-desc').innerText = info.descripcion || "Sin descripción disponible.";
+                document.getElementById('modal-estrategia').innerText = info.estrategia_explicacion || "Estrategia estándar de monitoreo técnico.";
+                document.getElementById('info-modal').style.display = 'flex';
+            }
+
+            function cerrarModal() {
+                document.getElementById('info-modal').style.display = 'none';
             }
 
             function mostrarBannerCarga(mostrar) {
@@ -1045,8 +1150,8 @@ def dashboard():
 
                 renderizarGridMercado();
 
-                // Guardado asíncrono en backend sin bloquear UI
-                fetch('/api/reorder', {
+                // Guardado asíncrono en backend
+                await fetch('/api/reorder', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ activos: ordenActivosGlobal })
@@ -1092,8 +1197,6 @@ def dashboard():
                 actualizarApp(true);
             }
 
-            let mercadoGlobalData = {};
-
             async function actualizarApp(forzarRender = false) {
                 try {
                     const res = await fetch('/api/data');
@@ -1102,18 +1205,19 @@ def dashboard():
                     document.getElementById('select-tf').value = timeframe;
                     if(activos_orden) ordenActivosGlobal = activos_orden;
                     if(mercado) mercadoGlobalData = mercado;
+                    if(catalogo) catalogoGlobal = catalogo;
                     
                     const datalist = document.getElementById('datalist-tickers');
                     if(datalist.children.length === 0 && catalogo) {
                         for(const [t, desc] of Object.entries(catalogo)) {
                             const opt = document.createElement('option');
                             opt.value = t;
-                            opt.textContent = desc;
+                            opt.textContent = desc.nombre;
                             datalist.appendChild(opt);
                         }
                     }
 
-                    document.getElementById('reloj-mercado').innerHTML = horario;
+                    document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator" title="Sincronización en vivo activa"></span>`;
                     document.getElementById('reloj-cuenta').innerHTML = cuenta_regresiva;
 
                     let capitalTotal = 0;
@@ -1139,7 +1243,7 @@ def dashboard():
                                     </div>
                                     <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
                                     <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Acciones: ${p.acciones || 0} ($${p.inversion_total || 0})</div>
-                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};">SL Audit: ${p.analisis_sl}</div>
+                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};" title="El sistema audita segundo a segundo si tu Stop Loss está seguro o si debes asegurar ganancias">SL Audit: ${p.analisis_sl}</div>
                                 </div>
                             `;
                         });
@@ -1163,9 +1267,11 @@ def dashboard():
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
                                     <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio} (RSI: ${s.rsi})</div>
                                     <div style="font-size:0.75rem; color:#facc15; margin: 2px 0;">${s.estado}</div>
-                                    <div style="display:flex; gap:6px; margin-top:6px;">
-                                        <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.7rem; padding:4px 8px;">+ Seguir</button>
-                                        <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.7rem; padding:4px 8px; background:#10b981; color:#fff;">💼 Operar</button>
+                                    <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                                        <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button>
+                                        <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${s.ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TV</a>
+                                        <button onclick="mostrarModal('${s.ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
                                     </div>
                                 </div>
                             `;
@@ -1184,9 +1290,11 @@ def dashboard():
                                     <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
                                 </div>
                                 <div style="font-size:0.78rem; margin-top:3px;">${a.evento}</div>
-                                <div style="display:flex; gap:6px; margin-top:6px;">
-                                    <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:2px 6px;">+ Seguir Activo</button>
-                                    <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                                    <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:3px 6px;">+ Seguir Activo</button>
+                                    <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                    <a href="https://www.tradingview.com/chart/?symbol=${a.symbol}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TV</a>
+                                    <button onclick="mostrarModal('${a.symbol}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
                                 </div>
                             </div>
                         `).join('');
@@ -1210,40 +1318,72 @@ def dashboard():
                         else if (info.estado_entrada.includes("PREPARANDO")) claseEntrada = 'entrada-prep';
                         else if (info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
 
-                        grid.innerHTML += `
-                            <div class="card">
-                                <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
-                                <div style="position:absolute; top:8px; right:32px;">
-                                    <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
-                                    <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
-                                </div>
-                                <div class="card-header" style="padding-right: 70px;">
-                                    <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
-                                    <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
-                                </div>
-                                <div class="price">$${info.precio}</div>
-                                <div class="${claseEntrada}">${info.estado_entrada}</div>
-                                
-                                <div class="sparkline-container">
-                                    <svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none">
-                                        <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
-                                    </svg>
-                                </div>
+                        if(modoLista) {
+                            grid.innerHTML = grid.innerHTML + `
+                                <div class="card">
+                                    <div class="card-header">
+                                        <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
+                                        <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
+                                    </div>
+                                    <div class="price">$${info.precio}</div>
+                                    <div class="${claseEntrada}">${info.estado_entrada}</div>
+                                    
+                                    <div class="sparkline-container">
+                                        <svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none">
+                                            <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
+                                        </svg>
+                                    </div>
 
-                                <div class="levels-box">
-                                    <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
-                                    <div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
-                                    <div class="stat" style="margin-top:6px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
-                                    <div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${info.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${info.tendencia_macro}</span></div>
-                                    <div class="stat"><span>📈 Volumen:</span> <span style="font-weight:bold; color:${info.vol_valido ? '#4ade80' : '#f87171'}">${info.vol_valido ? 'ÓPTIMO' : 'BAJO'}</span></div>
-                                </div>
+                                    <div class="card-buttons">
+                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.7rem; background:#10b981; color:#fff; padding:4px 8px;">💼 Operar</button>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px 8px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.7rem;">📈 TV</a>
+                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.7rem; padding:4px 8px;">ℹ️ Info</button>
+                                    </div>
 
-                                <div style="display:flex; gap:6px; margin-top:8px;">
-                                    <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button>
-                                    <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TradingView</a>
+                                    <div class="reorder-group">
+                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
+                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
+                                    </div>
+                                    <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
                                 </div>
-                            </div>
-                        `;
+                            `;
+                        } else {
+                            grid.innerHTML = grid.innerHTML + `
+                                <div class="card">
+                                    <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
+                                    <div style="position:absolute; top:8px; right:32px;">
+                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
+                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
+                                    </div>
+                                    <div class="card-header" style="padding-right: 70px;">
+                                        <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
+                                        <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
+                                    </div>
+                                    <div class="price">$${info.precio}</div>
+                                    <div class="${claseEntrada}">${info.estado_entrada}</div>
+                                    
+                                    <div class="sparkline-container">
+                                        <svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none">
+                                            <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
+                                        </svg>
+                                    </div>
+
+                                    <div class="levels-box">
+                                        <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
+                                        <div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
+                                        <div class="stat" style="margin-top:6px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
+                                        <div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${info.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${info.tendencia_macro}</span></div>
+                                        <div class="stat"><span>📈 Volumen:</span> <span style="font-weight:bold; color:${info.vol_valido ? '#4ade80' : '#f87171'}">${info.vol_valido ? 'ÓPTIMO' : 'BAJO'}</span></div>
+                                    </div>
+
+                                    <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TV</a>
+                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.72rem; padding:4px 6px;">ℹ️ Info</button>
+                                    </div>
+                                </div>
+                            `;
+                        }
                     });
                 } else {
                     grid.innerHTML = `<p style="color:#94a3b8;">Sin activos bajo monitoreo.</p>`;
