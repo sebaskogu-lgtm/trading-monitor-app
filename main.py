@@ -150,7 +150,7 @@ CATALOGO_TICKERS = {
     "AAPL": {
         "nombre": "Apple Inc.",
         "desc": "Gigante tecnológico de consumo, software y servicios digitales.",
-        "estrategia": "Estrategia de ruptura de máximos con soporte en medias móviles.",
+        "estrategia": "Ruptura de máximos con soporte en medias móviles (SMA 9/21).",
     },
     "MSFT": {
         "nombre": "Microsoft Corporation",
@@ -164,12 +164,12 @@ CATALOGO_TICKERS = {
     },
     "NVDA": {
         "nombre": "NVIDIA Corporation",
-        "desc": "Pionero absoluto en unidades de procesamiento gráfico y semiconductores IA.",
+        "desc": "Pionero absoluto en procesamiento gráfico y semiconductores IA.",
         "estrategia": "Alta volatilidad; exige confirmación estricta de volumen en rupturas.",
     },
     "GOOGL": {
         "nombre": "Alphabet Inc.",
-        "desc": "Ecosistema publicitario global, búsquedas y soluciones de inteligencia artificial.",
+        "desc": "Ecosistema publicitario global, búsquedas y soluciones de IA.",
         "estrategia": "Ideal para operativa institucional en swing trading (4H / 1D).",
     },
     "META": {
@@ -230,35 +230,9 @@ CATALOGO_TICKERS = {
 }
 
 POOL_ESCANER_DINAMICO = [
-    "AAPL",
-    "MSFT",
-    "AMZN",
-    "NVDA",
-    "GOOGL",
-    "META",
-    "TSLA",
-    "NFLX",
-    "AMD",
-    "COIN",
-    "MSTR",
-    "PLTR",
-    "SPY",
-    "QQQ",
-    "INTC",
-    "BA",
-    "JPM",
-    "DIS",
-    "XOM",
-    "BABA",
-    "BTC-USD",
-    "ETH-USD",
-    "ARM",
-    "SMCI",
-    "MU",
-    "QCOM",
-    "AVGO",
-    "MARA",
-    "RIOT",
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "NFLX", "AMD",
+    "COIN", "MSTR", "PLTR", "SPY", "QQQ", "INTC", "BA", "JPM", "DIS", "XOM",
+    "BABA", "BTC-USD", "ETH-USD", "ARM", "SMCI", "MU", "QCOM", "AVGO", "MARA", "RIOT"
 ]
 
 timeframe_actual = "1h"
@@ -320,9 +294,8 @@ def obtener_info_horario():
     proxima = m_open + timedelta(days=1)
     diff = proxima - ny_time
     seg = int(diff.total_seconds())
-    h, r = divmod(seg, 3600)
-    m, s = divmod(r, 60)
-    return "🔴 CERRADO", f"Abre mañana en {h}h {m}m {s}s"
+    h, s = divmod(seg, 60)
+    return "🔴 CERRADO", f"Abre mañana en {h}h {s}m"
   elif ny_time >= pre_close:
     diff = m_close - ny_time
     seg = int(diff.total_seconds())
@@ -875,16 +848,20 @@ def dashboard():
             .ticker { font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 6px; }
             .price { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
             
+            /* BARRA DE ACCIONES SUPERIOR EN TARJETAS PARA EVITAR SOLAPES */
+            .card-top-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
+            .reorder-group { display: flex; gap: 4px; }
+            
             /* VISTA DE LISTA COMPACTA HORIZONTAL */
-            .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 12px; flex-wrap: wrap; }
-            .grid-activos.list-view .card-header { margin-bottom: 0; width: 140px; }
-            .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 90px; }
-            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 180px; text-align: center; }
-            .grid-activos.list-view .sparkline-container { width: 110px; height: 25px; margin-top: 0; }
+            .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
+            .grid-activos.list-view .card-top-toolbar { display: none; }
+            .grid-activos.list-view .card-header { margin-bottom: 0; width: 120px; }
+            .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 75px; }
+            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; }
+            .grid-activos.list-view .sparkline-container { width: 80px; height: 25px; margin-top: 0; }
             .grid-activos.list-view .levels-box { display: none; }
             .grid-activos.list-view .card-buttons { display: flex; gap: 4px; margin-top: 0; }
-            .grid-activos.list-view .btn-remove { position: static; }
-            .grid-activos.list-view .reorder-group { display: flex; gap: 2px; }
+            .grid-activos.list-view .list-actions-bar { display: flex; gap: 6px; align-items: center; }
 
             .badge { padding: 3px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: bold; }
             .tf-badge { background: #3a506b; color: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; }
@@ -901,7 +878,7 @@ def dashboard():
             .sl-text { color: #f87171; font-weight: bold; }
             .tp-text { color: #4ade80; font-weight: bold; }
             .fib-text { color: #facc15; font-weight: bold; }
-            .btn-remove { position: absolute; top: 10px; right: 10px; background: transparent; color: #ef4444; border: none; font-size: 1.1rem; cursor: pointer; }
+            .btn-remove { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: bold; }
             
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
             
@@ -910,9 +887,6 @@ def dashboard():
             .alerta-item { background: #0b132b; border-left: 4px solid #38bdf8; padding: 8px; margin-bottom: 6px; border-radius: 4px; }
             
             .links-externos { display: flex; gap: 6px; margin-top: 8px; justify-content: center; font-size: 0.75rem; }
-            .links-externos a { background: #0b132b; color: #38bdf8; border: 1px solid #3a506b; padding: 3px 6px; border-radius: 4px; text-decoration: none; font-weight: bold; }
-            .links-externos a:hover { background: #38bdf8; color: #0b132b; }
-
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
             
             #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -948,7 +922,7 @@ def dashboard():
 
         <div class="reloj-box">
             <div id="reloj-mercado" class="reloj">... <span class="live-indicator" title="Sincronización en vivo activa"></span></div>
-            <div id="reloj-cuenta" class="reloj-sub">...</div>
+            <div id="reloj-cuenta" class="reloj-sub" id="reloj-segundos">...</div>
         </div>
         
         <div class="control-panel">
@@ -977,6 +951,8 @@ def dashboard():
                         <span>Rendimiento: <b>0.00%</b></span>
                     </div>
 
+                    <!-- CALCULADORA DE RIESGO CON TÍTULO CLARO -->
+                    <div style="font-size:0.8rem; font-weight:bold; color:#38bdf8; margin-bottom:6px;">🧮 CALCULADORA DE TAMAÑO DE POSICIÓN Y RIESGO</div>
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; background:#0b132b; padding:10px; border-radius:6px; border:1px solid #3a506b;">
                         <div class="input-group">
                             <label>ACTIVO</label>
@@ -1020,7 +996,7 @@ def dashboard():
                         • <span class="manual-tag entrada-prep">PREPARING</span> Apoyo en zonas doradas de Fibonacci (50% / 61.8%).<br>
                         • <span class="manual-tag entrada-rebote">REBOTE EN ZONA</span> Rebote por sobreventa (RSI ≤ 30).<br>
                         • <span class="manual-tag entrada-warn">FALSO QUIEBRE</span> Quiebre sin volumen (Bull Trap).<br><br>
-                        <b>🧮 Auditoría SL Cartera:</b> El estado "Analizando..." se actualiza segundo a segundo al recibir precios nuevos, auditando si tu Stop Loss está seguro, muy corto, o si ya califica para asegurar ganancias (Break Even).
+                        <b>🧮 Auditoría SL Cartera:</b> El estado "Analizando..." se actualiza segundo a segundo auditando si tu Stop Loss está seguro o si ya califica para asegurar ganancias (Break Even).
                     </div>
                 </div>
 
@@ -1055,6 +1031,14 @@ def dashboard():
             let mercadoGlobalData = {};
             let catalogoGlobal = {};
 
+            // Reloj con segundero local fluido
+            setInterval(() => {
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                const el = document.getElementById('reloj-segundos-local');
+                if(el) el.innerText = timeString;
+            }, 1000);
+
             function toggleManual() {
                 const el = document.getElementById('box-manual');
                 el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -1079,9 +1063,13 @@ def dashboard():
                     nombre: catalogoGlobal[ticker].nombre,
                     descripcion: catalogoGlobal[ticker].desc,
                     estrategia_explicacion: catalogoGlobal[ticker].estrategia
-                } : null);
+                } : {
+                    symbol: ticker,
+                    nombre: ticker,
+                    descripcion: "Activo detectado por escáner de alta volatilidad y momentum.",
+                    estrategia_explicacion: "Monitoreo técnico de soportes, resistencias y confirmación de volumen institucional."
+                });
 
-                if(!info) return;
                 document.getElementById('modal-titulo').innerText = `${ticker} - ${info.nombre || ''}`;
                 document.getElementById('modal-desc').innerText = info.descripcion || "Sin descripción disponible.";
                 document.getElementById('modal-estrategia').innerText = info.estrategia_explicacion || "Estrategia estándar de monitoreo técnico.";
@@ -1150,7 +1138,6 @@ def dashboard():
 
                 renderizarGridMercado();
 
-                // Guardado asíncrono en backend
                 await fetch('/api/reorder', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1218,7 +1205,7 @@ def dashboard():
                     }
 
                     document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator" title="Sincronización en vivo activa"></span>`;
-                    document.getElementById('reloj-cuenta').innerHTML = cuenta_regresiva;
+                    document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva} | Local: <span id="reloj-segundos-local">...</span>`;
 
                     let capitalTotal = 0;
                     let pnlSuma = 0;
@@ -1270,7 +1257,7 @@ def dashboard():
                                     <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button>
                                         <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
-                                        <a href="https://www.tradingview.com/chart/?symbol=${s.ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TV</a>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${s.ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TradingView</a>
                                         <button onclick="mostrarModal('${s.ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
                                     </div>
                                 </div>
@@ -1293,7 +1280,7 @@ def dashboard():
                                 <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                                     <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:3px 6px;">+ Seguir Activo</button>
                                     <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Operar</button>
-                                    <a href="https://www.tradingview.com/chart/?symbol=${a.symbol}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TV</a>
+                                    <a href="https://www.tradingview.com/chart/?symbol=${a.symbol}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TradingView</a>
                                     <button onclick="mostrarModal('${a.symbol}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
                                 </div>
                             </div>
@@ -1319,43 +1306,44 @@ def dashboard():
                         else if (info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
 
                         if(modoLista) {
-                            grid.innerHTML = grid.innerHTML + `
+                            grid.innerHTML += `
                                 <div class="card">
-                                    <div class="card-header">
+                                    <div class="card-header" style="margin-bottom:0; width:120px;">
                                         <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
-                                        <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
                                     </div>
-                                    <div class="price">$${info.precio}</div>
-                                    <div class="${claseEntrada}">${info.estado_entrada}</div>
+                                    <div class="price" style="width:75px;">$${info.precio}</div>
+                                    <div class="${claseEntrada}" style="width:160px; text-align:center; margin-bottom:0;">${info.estado_entrada}</div>
                                     
-                                    <div class="sparkline-container">
+                                    <div class="sparkline-container" style="width:80px; height:25px; margin-top:0;">
                                         <svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none">
                                             <polyline fill="none" stroke="${info.sparkline_color}" stroke-width="2" points="${info.sparkline}" />
                                         </svg>
                                     </div>
 
-                                    <div class="card-buttons">
-                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.7rem; background:#10b981; color:#fff; padding:4px 8px;">💼 Operar</button>
-                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px 8px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.7rem;">📈 TV</a>
-                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.7rem; padding:4px 8px;">ℹ️ Info</button>
+                                    <div class="list-actions-bar">
+                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.68rem; background:#10b981; color:#fff; padding:4px 6px;">💼 Operar</button>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem;">📈 TradingView</a>
+                                        <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
+                                        <div class="reorder-group" style="display:flex; gap:2px; margin-left:4px;">
+                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
+                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
+                                        </div>
+                                        <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
                                     </div>
-
-                                    <div class="reorder-group">
-                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
-                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
-                                    </div>
-                                    <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
                                 </div>
                             `;
                         } else {
-                            grid.innerHTML = grid.innerHTML + `
+                            grid.innerHTML += `
                                 <div class="card">
-                                    <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕</button>
-                                    <div style="position:absolute; top:8px; right:32px;">
-                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️</button>
-                                        <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️</button>
+                                    <div class="card-top-toolbar">
+                                        <div class="reorder-group">
+                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, -1)">⬆️ Subir</button>
+                                            <button class="btn-reorder" onclick="moverActivoLocal(${idx}, 1)">⬇️ Bajar</button>
+                                        </div>
+                                        <button class="btn-remove" onclick="eliminarActivo('${ticker}')" title="Eliminar">✕ Eliminar</button>
                                     </div>
-                                    <div class="card-header" style="padding-right: 70px;">
+
+                                    <div class="card-header">
                                         <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
                                         <span class="badge ${isBull ? 'bullish' : 'bearish'}">${info.tendencia}</span>
                                     </div>
@@ -1378,7 +1366,7 @@ def dashboard():
 
                                     <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
                                         <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button>
-                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TV</a>
+                                        <a href="https://www.tradingview.com/chart/?symbol=${ticker}" target="_blank" style="flex:1; background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:4px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.72rem; text-align:center; display:inline-block;">📈 TradingView</a>
                                         <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.72rem; padding:4px 6px;">ℹ️ Info</button>
                                     </div>
                                 </div>
