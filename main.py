@@ -182,35 +182,9 @@ CATALOGO_TICKERS = {
 
 # UNIVERSO DINÁMICO PARA EL ESCÁNER
 POOL_ESCANER_DINAMICO = [
-    "AAPL",
-    "MSFT",
-    "AMZN",
-    "NVDA",
-    "GOOGL",
-    "META",
-    "TSLA",
-    "NFLX",
-    "AMD",
-    "COIN",
-    "MSTR",
-    "PLTR",
-    "SPY",
-    "QQQ",
-    "INTC",
-    "BA",
-    "JPM",
-    "DIS",
-    "XOM",
-    "BABA",
-    "BTC-USD",
-    "ETH-USD",
-    "ARM",
-    "SMCI",
-    "MU",
-    "QCOM",
-    "AVGO",
-    "MARA",
-    "RIOT",
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "NFLX", "AMD",
+    "COIN", "MSTR", "PLTR", "SPY", "QQQ", "INTC", "BA", "JPM", "DIS", "XOM",
+    "BABA", "BTC-USD", "ETH-USD", "ARM", "SMCI", "MU", "QCOM", "AVGO", "MARA", "RIOT"
 ]
 
 timeframe_actual = "1h"
@@ -303,6 +277,23 @@ def procesar_ticker(symbol, tf_local):
 
   periodo, intervalo = obtener_config_tf(tf_local)
   try:
+    # 1. Obtener tendencia Macro (1 Día) para Confluencia Multi-Temporal
+    tendencia_macro = "ALZA"
+    if tf_local in ["1h", "4h"]:
+      try:
+        df_macro = yf.download(tickers=symbol, period="6mo", interval="1d", progress=False)
+        if not df_macro.empty:
+          if hasattr(df_macro.columns, 'nlevels') and df_macro.columns.nlevels > 1:
+            df_macro.columns = df_macro.columns.get_level_values(0)
+          df_macro["SMA_9"] = df_macro["Close"].rolling(9).mean()
+          df_macro["SMA_21"] = df_macro["Close"].rolling(21).mean()
+          ultima_macro = df_macro.iloc[-1]
+          if not pd.isna(ultima_macro["SMA_9"]) and not pd.isna(ultima_macro["SMA_21"]):
+            tendencia_macro = "ALZA" if ultima_macro["SMA_9"] > ultima_macro["SMA_21"] else "BAJA"
+      except:
+        pass
+
+    # 2. Descarga del marco temporal actual
     df = yf.download(
         tickers=symbol, period=periodo, interval=intervalo, progress=False
     )
@@ -319,6 +310,7 @@ def procesar_ticker(symbol, tf_local):
               "High": "max",
               "Low": "min",
               "Close": "last",
+              "Volume": "sum",
           })
           .dropna()
       )
@@ -339,6 +331,15 @@ def procesar_ticker(symbol, tf_local):
       df["RSI"] = 100 - (100 / (1 + rs))
       rsi_val = round(float(df["RSI"].iloc[-1]), 1) if not pd.isna(df["RSI"].iloc[-1]) else 50.0
 
+      # --- FILTRO DE VOLUMEN (Anti-Trampas) ---
+      vol_valido = True
+      if "Volume" in df.columns:
+        df["Vol_SMA_20"] = df["Volume"].rolling(window=20).mean()
+        vol_actual = float(df["Volume"].iloc[-1])
+        vol_promedio = float(df["Vol_SMA_20"].iloc[-1])
+        if vol_promedio > 0:
+          vol_valido = vol_actual >= (1.5 * vol_promedio)
+      
       ultima = df.iloc[-1]
       anterior = df.iloc[-2]
 
@@ -370,21 +371,26 @@ def procesar_ticker(symbol, tf_local):
 
       distancia_resistencia = ((resistencia - precio) / precio) * 100
 
-      # EVALUACIÓN DE SEÑALES MEJORADA CON RSI Y FIBONACCI
+      # String de alerta Multi-Temporal
+      riesgo_macro_str = " | ⚠️ Macro BAJISTA" if tendencia_macro == "BAJA" else ""
+
+      # EVALUACIÓN DE SEÑALES MEJORADA (FASE 2)
       if precio > resistencia and tendencia == "ALZA":
         if rsi_val >= 70.0:
           estado_entrada = f"⚠️ SOBRECOMPRADO (Riesgo | RSI {rsi_val})"
+        elif not vol_valido:
+          estado_entrada = f"⚠️ FALSO QUIEBRE (Falta Vol. | RSI {rsi_val})"
         elif en_zona_fib:
-          estado_entrada = f"🟢 BUENA ENTRADA (Ruptura + Fib | RSI {rsi_val})"
+          estado_entrada = f"🟢 BUENA ENTRADA (Ruptura+Fib){riesgo_macro_str}"
         else:
-          estado_entrada = f"🟢 BUENA ENTRADA (Quiebre | RSI {rsi_val})"
+          estado_entrada = f"🟢 BUENA ENTRADA (Quiebre){riesgo_macro_str}"
       elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
         if en_zona_fib:
-          estado_entrada = f"⏳ PREPARANDO (Apoyo Fib | RSI {rsi_val})"
+          estado_entrada = f"⏳ PREPARANDO (Apoyo Fib | RSI {rsi_val}){riesgo_macro_str}"
         else:
-          estado_entrada = f"⏳ PREPARANDO RUPTURA (RSI {rsi_val})"
+          estado_entrada = f"⏳ PREPARANDO RUPTURA (RSI {rsi_val}){riesgo_macro_str}"
       elif rsi_val <= 30.0 and en_zona_fib:
-        estado_entrada = f"💥 REBOTE EN ZONA (Sobrevendido | RSI {rsi_val})"
+        estado_entrada = f"💥 REBOTE EN ZONA (Sobrevendido){riesgo_macro_str}"
       elif rsi_val <= 30.0:
         estado_entrada = f"📉 SOBREVENDIDO (Esperar giro | RSI {rsi_val})"
       else:
@@ -411,6 +417,8 @@ def procesar_ticker(symbol, tf_local):
           "sma21": sma21,
           "rsi": rsi_val,
           "tendencia": tendencia,
+          "tendencia_macro": tendencia_macro,
+          "vol_valido": vol_valido,
           "estado_entrada": estado_entrada,
           "atr": atr_medio,
           "fib_50": fib_500,
@@ -432,7 +440,6 @@ def escaneo_autonomo():
   global recomendaciones_escaner
   while True:
     try:
-      # Evaluamos el Pool Dinámico en paralelo
       with ThreadPoolExecutor(max_workers=5) as executor:
         resultados = list(
             executor.map(
@@ -442,8 +449,6 @@ def escaneo_autonomo():
         )
 
       validos = [r for r in resultados if r is not None]
-
-      # Filtrar oportunidades interesantes: Rupturas sanas o Rebotes sobrevendidos
       oportunidades = []
       for r in validos:
         st = r["estado_entrada"]
@@ -457,12 +462,9 @@ def escaneo_autonomo():
               "estado": r["estado_entrada"],
           })
 
-      # Ordenamos dando prioridad a entradas de buena calidad
       oportunidades.sort(
           key=lambda x: (
-              0
-              if "BUENA ENTRADA" in x["estado"]
-              else (1 if "REBOTE" in x["estado"] else 2)
+              0 if "BUENA ENTRADA" in x["estado"] else (1 if "REBOTE" in x["estado"] else 2)
           )
       )
 
@@ -495,7 +497,7 @@ def analizar_mercado():
         ):
           _registrar_alerta(
               sym,
-              f"🟢 ALERTA TÉCNICA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}",
+              f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}",
               r["precio"],
               r["hora"],
           )
@@ -528,20 +530,24 @@ def _evaluar_cartera(
 
       if sma9 < sma21:
         estado_pos = "⚠️ GIRO A LA BAJA"
-        _registrar_alerta(
-            symbol, f"⚠️ ALERTA CARTERA: Pérdida de impulso.", precio_actual, hora
-        )
+        _registrar_alerta(symbol, f"⚠️ CARTERA: Pérdida de impulso.", precio_actual, hora)
       elif p_ganancia >= 2.0:
         estado_pos = "🟢 EN GANANCIA"
 
       distancia_sl = precio_actual - sl_user
       mensaje_sl = "✔️ SL Correcto"
+      
+      # FASE 2: GESTIÓN DE TRAILING STOP Y ASEGURAMIENTO DE GANANCIAS
       if sl_user >= precio_actual:
-        mensaje_sl = "❌ SL inválido"
+        mensaje_sl = "❌ SL inválido (mayor al precio actual)"
+      elif p_ganancia >= 3.0 and sl_user < soporte_tecnico:
+        mensaje_sl = f"📈 Trailing Stop: Sube SL a soporte (${soporte_tecnico})"
+      elif p_ganancia >= 1.5 and sl_user < p_compra:
+        mensaje_sl = f"🔔 Asegura ganancias: Sube SL a BE (${p_compra})"
       elif distancia_sl < (atr * 0.5):
-        mensaje_sl = "⚠️ SL MUY CORTO"
+        mensaje_sl = "⚠️ SL MUY CORTO (Riesgo de mecha)"
       elif sl_user < (soporte_tecnico * 0.95):
-        mensaje_sl = "⚠️ SL MUY LEJOS"
+        mensaje_sl = "⚠️ SL MUY LEJOS (Demasiado riesgo)"
 
       pos["precio_actual"] = precio_actual
       pos["pnl_porcentaje"] = round(p_ganancia, 2)
@@ -758,7 +764,7 @@ def dashboard():
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
             @media (max-width: 850px) { .container { grid-template-columns: 1fr; } }
             
-            .grid-activos { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+            .grid-activos { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
             .card { background: #1c2541; border-radius: 10px; padding: 14px; border: 1px solid #3a506b; position: relative; }
             .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
             .ticker { font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 6px; }
@@ -771,6 +777,7 @@ def dashboard():
             .entrada-ok { background: rgba(34, 197, 94, 0.3); color: #4ade80; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
             .entrada-prep { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
             .entrada-wait { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
+            .entrada-warn { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
             .entrada-rebote { background: rgba(168, 85, 247, 0.25); color: #c084fc; border: 1px solid #a855f7; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; }
             
             .stat { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.82rem; color: #cbd5e1; }
@@ -806,9 +813,9 @@ def dashboard():
 
         <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
             <div></div>
-            <h1>📊 Trading Monitor Pro</h1>
+            <h1>📊 Trading Monitor Pro (Fase 2)</h1>
             <div>
-                <button onclick="toggleIdioma()" id="btn-lang" style="background:#3a506b; color:#fff; font-size:0.75rem; padding:4px 8px;">EN / ES</button>
+                <button onclick="toggleIdioma()" id="btn-lang" style="background:#3a506b; color:#fff; font-size:0.75rem; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">EN / ES</button>
             </div>
         </div>
 
@@ -859,29 +866,30 @@ def dashboard():
             
             <div>
                 <div class="edu-panel">
-                    <div class="feed-title" id="title-guide">📖 Manual & Referencia Rápida</div>
-                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px;">📘 Ver / Ocultar Guía de Uso y Señales</button>
+                    <div class="feed-title" id="title-guide">📖 Manual PRO & Algoritmo</div>
+                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales y Filtros</button>
                     
                     <div id="box-manual" class="manual-box" style="display:none;">
                         <b>🏷️ Significado de Señales:</b><br>
-                        • <span class="manual-tag entrada-ok">🟢 BUENA ENTRADA</span> Ruptura de resistencia con tendencia alcista y RSI sano.<br>
+                        • <span class="manual-tag entrada-ok">🟢 BUENA ENTRADA</span> Ruptura de resistencia validada con tendencia, volumen alto y RSI sano.<br>
                         • <span class="manual-tag entrada-prep">⏳ PREPARANDO</span> Precio pegado a la resistencia o rebotando en Fib 50%/61.8%.<br>
-                        • <span class="manual-tag entrada-rebote">💥 REBOTE EN ZONA</span> Caída sobrevendida (RSI ≤ 30) en zona dorada de Fibonacci.<br>
-                        • <span class="manual-tag" style="background:#ef4444; color:#fff;">⚠️ SOBRECOMPRADO</span> Ruptura tardía con RSI ≥ 70 (Riesgo de caída).<br><br>
+                        • <span class="manual-tag entrada-rebote">💥 REBOTE EN ZONA</span> Caída sobrevendida (RSI ≤ 30) rebotando en nivel dorado Fibonacci.<br>
+                        • <span class="manual-tag entrada-warn">⚠️ FALSO QUIEBRE</span> Rompió resistencia, pero SIN volumen (Bull Trap).<br>
+                        • <span class="manual-tag" style="background:#ef4444; color:#fff;">⚠️ SOBRECOMPRADO</span> Ruptura tardía con RSI ≥ 70 (Peligro de corrección).<br><br>
 
-                        <b>📐 Indicadores Clave:</b><br>
-                        • <b>RSI (14):</b> < 30 Sobrevendido (Barato), > 70 Sobrecomprado (Caro).<br>
-                        • <b>Fibonacci:</b> Retrocesos del 50% y 61.8% donde el precio suele rebotar.<br>
-                        • <b>SMA 9 / 21:</b> Tendencia alcista si 9 > 21. Si cruza hacia abajo, salir.<br><br>
-
+                        <b>🛡️ Filtros de Seguridad (NUEVO):</b><br>
+                        • <b>Volumen:</b> El bot exige que el quiebre ocurra con un volumen un 50% superior a su promedio reciente.<br>
+                        • <b>Tendencia Macro:</b> Al operar en 1H, el bot mira en secreto el gráfico Diario (1D). Si 1D es bajista, te avisará que la operación tiene `⚠️ Macro BAJISTA`.<br>
+                        • <b>Trailing Stop:</b> Al guardar posiciones en tu Cartera, el bot te notificará si es momento de subir el SL a Break Even (BE) o perseguir el precio para asegurar ganancias.<br><br>
+                        
                         <b>💼 Calculadora de Riesgo:</b><br>
                         Ingresa tu capital máximo a arriesgar (ej. $50 USD). La app calculará exactamente cuántas acciones comprar para no perder más de esa cantidad si toca tu Stop Loss.
                     </div>
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title" id="title-scanner">🤖 Escáner Dinámico (Oportunidades & Rebotes)</div>
-                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando configuraciones óptimas...</div>
+                    <div class="feed-title" id="title-scanner">🤖 Escáner Dinámico de Oportunidades</div>
+                    <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando Momentum y Rebotes...</div>
                 </div>
 
                 <div class="feed-panel">
@@ -897,31 +905,31 @@ def dashboard():
 
             const dictionary = {
                 es: {
-                    loading: "🔄 Recalculando marcos temporales y escaneando Yahoo Finance...",
+                    loading: "🔄 Recalculando marcos temporales y descargando datos...",
                     add: "+ Seguir Activo",
                     portfolio: "💼 Mi Cartera y Gestión de Riesgo",
                     save: "Guardar",
                     watched: "Activos bajo Monitoreo Activo",
-                    guide: "📖 Manual & Referencia Rápida",
-                    scanner: "🤖 Escáner Dinámico (Oportunidades & Rebotes)",
+                    guide: "📖 Manual PRO & Algoritmo",
+                    scanner: "🤖 Escáner Dinámico de Oportunidades",
                     alerts: "🚨 Feed de Alertas en Vivo",
                     emptyPortfolio: "Sin posiciones guardadas.",
                     emptyWatched: "Sin activos bajo monitoreo.",
-                    emptyScanner: "Scanning optimal setups...",
+                    emptyScanner: "Buscando Momentum y Rebotes...",
                     emptyAlerts: "Sin señales recientes."
                 },
                 en: {
-                    loading: "🔄 Recalculating timeframes and scanning Yahoo Finance...",
+                    loading: "🔄 Recalculating timeframes and fetching data...",
                     add: "+ Track Asset",
                     portfolio: "💼 My Portfolio & Risk Management",
                     save: "Save",
                     watched: "Monitored Assets",
-                    guide: "📖 Manual & Quick Reference",
-                    scanner: "🤖 Dynamic Scanner (Opportunities & Bounces)",
+                    guide: "📖 PRO Manual & Algorithm",
+                    scanner: "🤖 Dynamic Scanner (Momentum & Bounces)",
                     alerts: "🚨 Live Alerts Feed",
                     emptyPortfolio: "No saved positions.",
                     emptyWatched: "No monitored assets.",
-                    emptyScanner: "Scanning optimal setups...",
+                    emptyScanner: "Scanning Momentum and Bounces...",
                     emptyAlerts: "No recent signals."
                 }
             };
@@ -1061,7 +1069,15 @@ def dashboard():
                         cartera.forEach(p => {
                             capitalTotal += p.inversion_total || 0;
                             pnlSuma += p.pnl_porcentaje || 0;
+                            
                             const pnlColor = p.pnl_porcentaje >= 0 ? '#4ade80' : '#f87171';
+                            
+                            // Yellow color for trailing stop recommendations
+                            let slColor = p.analisis_sl.includes("Correcto") ? '#4ade80' : '#f87171';
+                            if (p.analisis_sl.includes("Sube SL") || p.analisis_sl.includes("Trailing Stop")) {
+                                slColor = '#facc15';
+                            }
+                            
                             divCartera.innerHTML += `
                                 <div class="alerta-item" style="border-left-color: ${pnlColor};">
                                     <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.9rem;">
@@ -1071,6 +1087,7 @@ def dashboard():
                                     </div>
                                     <div style="font-size:0.8rem; margin-top:4px;">Entrada: $${p.precio_compra} | Actual: $${p.precio_actual} | TP: $${p.tp_usuario}</div>
                                     <div style="font-size:0.8rem; color:#38bdf8; margin-top:2px; font-weight:bold;">Comprar: ${p.acciones || 0} acciones ($${p.inversion_total || 0})</div>
+                                    <div style="font-size:0.8rem; margin-top:2px; font-weight:bold; color:${slColor};">Gestión SL: ${p.analisis_sl}</div>
                                 </div>
                             `;
                         });
@@ -1111,7 +1128,8 @@ def dashboard():
                         for (const [ticker, info] of Object.entries(mercado)) {
                             const isBull = info.tendencia === 'ALZA';
                             let claseEntrada = 'entrada-wait';
-                            if (info.estado_entrada.includes("BUENA ENTRADA")) claseEntrada = 'entrada-ok';
+                            if (info.estado_entrada.includes("FALSO QUIEBRE")) claseEntrada = 'entrada-warn';
+                            else if (info.estado_entrada.includes("BUENA ENTRADA")) claseEntrada = 'entrada-ok';
                             else if (info.estado_entrada.includes("PREPARANDO")) claseEntrada = 'entrada-prep';
                             else if (info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
 
@@ -1134,8 +1152,9 @@ def dashboard():
                                     <div class="levels-box">
                                         <div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${info.soporte_tecnico}</span></div>
                                         <div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${info.tp_tecnico}</span></div>
-                                        <div class="stat"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
-                                        <div class="stat"><span>📐 Fib 50% / 61.8%:</span> <span class="fib-text">$${info.fib_50} / $${info.fib_618}</span></div>
+                                        <div class="stat" style="margin-top:6px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${info.rsi >= 70 ? '#ef4444' : (info.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${info.rsi}</span></div>
+                                        <div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${info.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${info.tendencia_macro}</span></div>
+                                        <div class="stat"><span>📈 Volumen:</span> <span style="font-weight:bold; color:${info.vol_valido ? '#4ade80' : '#f87171'}">${info.vol_valido ? 'ÓPTIMO' : 'BAJO / PROM'}</span></div>
                                     </div>
 
                                     <div class="links-externos">
