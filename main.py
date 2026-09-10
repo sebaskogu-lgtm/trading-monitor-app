@@ -236,6 +236,7 @@ POOL_ESCANER_DINAMICO = [
 ]
 
 timeframe_actual = "1h"
+mercado_actual = "NY"  # "NY", "LONDRES", "ASIA"
 estado_mercado = {}
 historial_alertas = []
 recomendaciones_escaner = []
@@ -245,6 +246,10 @@ SSE_SUBSCRIBERS = []
 
 class TimeframeModel(BaseModel):
   timeframe: str
+
+
+class MercadoModel(BaseModel):
+  mercado: str
 
 
 class PosicionModel(BaseModel):
@@ -261,52 +266,77 @@ class ReordenarModel(BaseModel):
 
 
 def obtener_info_horario():
-  ny_tz = pytz.timezone("America/New_York")
-  ny_time = datetime.now(ny_tz)
+  global mercado_actual
+  if mercado_actual == "LONDRES":
+    tz = pytz.timezone("Europe/London")
+    t = datetime.now(tz)
+    nombre_mercado = "Londres (LSE)"
+    open_h, open_m = 8, 0
+    close_h, close_m = 16, 30
+    has_lunch = False
+  elif mercado_actual == "ASIA":
+    tz = pytz.timezone("Asia/Tokyo")
+    t = datetime.now(tz)
+    nombre_mercado = "Asia (Tokio)"
+    open_h, open_m = 9, 0
+    close_h, close_m = 15, 30
+    has_lunch = True
+  else:
+    tz = pytz.timezone("America/New_York")
+    t = datetime.now(tz)
+    nombre_mercado = "Nueva York (NYSE)"
+    open_h, open_m = 9, 30
+    close_h, close_m = 16, 0
+    has_lunch = False
 
-  if ny_time.weekday() > 4:
-    dias_hasta_lunes = (7 - ny_time.weekday()) % 7
+  if t.weekday() > 4:
+    dias_hasta_lunes = (7 - t.weekday()) % 7
     if dias_hasta_lunes == 0:
       dias_hasta_lunes = 2
-    proximo_lunes = ny_time + timedelta(days=dias_hasta_lunes)
+    proximo_lunes = t + timedelta(days=dias_hasta_lunes)
     proximo_lunes = proximo_lunes.replace(
-        hour=9, minute=30, second=0, microsecond=0
+        hour=open_h, minute=open_m, second=0, microsecond=0
     )
-    diff = proximo_lunes - ny_time
+    diff = proximo_lunes - t
     horas, rem = divmod(int(diff.total_seconds()), 3600)
     minutos, segundos = divmod(rem, 60)
     return (
-        "🔴 CERRADO (Fin de semana)",
+        f"🔴 {nombre_mercado} CERRADO (Fin de semana)",
         f"Abre en {horas // 24}d {horas % 24}h {minutos}m {segundos}s",
     )
 
-  m_open = ny_time.replace(hour=9, minute=30, second=0, microsecond=0)
-  m_close = ny_time.replace(hour=16, minute=0, second=0, microsecond=0)
-  pre_close = ny_time.replace(hour=15, minute=30, second=0, microsecond=0)
+  m_open = t.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+  m_close = t.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
 
-  if ny_time < m_open:
-    diff = m_open - ny_time
+  if has_lunch:
+    lunch_start = t.replace(hour=11, minute=30, second=0, microsecond=0)
+    lunch_end = t.replace(hour=12, minute=30, second=0, microsecond=0)
+  else:
+    lunch_start = lunch_end = None
+
+  if t < m_open:
+    diff = m_open - t
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, s = divmod(r, 60)
-    return "🔴 CERRADO (Pre-apertura)", f"Abre en {h}h {m}m {s}s"
-  elif ny_time > m_close:
+    return f"🔴 {nombre_mercado} CERRADO (Pre-apertura)", f"Abre en {h}h {m}m {s}s"
+  elif t > m_close:
     proxima = m_open + timedelta(days=1)
-    diff = proxima - ny_time
+    diff = proxima - t
     seg = int(diff.total_seconds())
     h, s = divmod(seg, 60)
-    return "🔴 CERRADO", f"Abre mañana en {h}h {s}m"
-  elif ny_time >= pre_close:
-    diff = m_close - ny_time
+    return f"🔴 {nombre_mercado} CERRADO", f"Abre mañana en {h}h {s}m"
+  elif has_lunch and lunch_start <= t < lunch_end:
+    diff = lunch_end - t
     seg = int(diff.total_seconds())
     m, s = divmod(seg, 60)
-    return "⚠️ PRE-CIERRE", f"Cierra en {m}m {s}s"
+    return f"☕ {nombre_mercado} RECESO (Almuerzo)", f"Vuelve en {m}m {s}s"
   else:
-    diff = m_close - ny_time
+    diff = m_close - t
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, s = divmod(r, 60)
-    return "🟢 ABIERTO (NYSE)", f"Cierra en {h}h {m}m {s}s"
+    return f"🟢 {nombre_mercado} ABIERTO", f"Cierra en {h}h {m}m {s}s"
 
 
 def obtener_config_tf(tf: str):
@@ -680,6 +710,7 @@ def obtener_datos():
       "alertas": historial_alertas,
       "cartera": db_get("cartera"),
       "timeframe": timeframe_actual,
+      "mercado_actual": mercado_actual,
       "horario": estado,
       "cuenta_regresiva": cuenta_reg,
       "sugerencias": recomendaciones_escaner,
@@ -812,6 +843,14 @@ def cambiar_timeframe(item: TimeframeModel):
   return {"status": "ok"}
 
 
+@app.post("/api/mercado")
+def cambiar_mercado(item: MercadoModel):
+  global mercado_actual
+  if item.mercado in ["NY", "LONDRES", "ASIA"]:
+    mercado_actual = item.mercado
+  return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
   return """
@@ -833,15 +872,18 @@ def dashboard():
             
             .control-panel { max-width: 1200px; margin: 0 auto 16px auto; background: #1c2541; padding: 12px; border-radius: 10px; display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; border: 1px solid #3a506b; }
             input[type="text"], input[type="number"], select { background: #0b132b; border: 1px solid #3a506b; color: #fff; padding: 8px; border-radius: 6px; font-size: 0.9rem; }
-            input[type="text"] { width: 180px; text-transform: uppercase; }
+            input[type="text"] { width: 160px; text-transform: uppercase; }
             button { background: #38bdf8; color: #0b132b; border: none; padding: 8px 12px; font-weight: bold; border-radius: 6px; cursor: pointer; }
             button:hover { background: #7dd3fc; }
             
+            .btn-mercado { background: #3a506b; color: #cbd5e1; border: 1px solid #3a506b; }
+            .btn-mercado.active { background: #38bdf8; color: #0b132b; border-color: #7dd3fc; font-weight: 800; }
+
             /* DISEÑO DE COLUMNAS OPTIMIZADO PARA MÓVIL (Alertas primero en celular) */
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; }
             @media (max-width: 900px) { 
                 .container { grid-template-columns: 1fr; } 
-                .sidebar-prioritario { order: -1; } /* Sube alertas y escáner arriba en celulares */
+                .sidebar-prioritario { order: -1; } 
             }
             
             .grid-activos { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
@@ -853,7 +895,6 @@ def dashboard():
             .price { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
             
             .card-top-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
-            .reorder-group { display: flex; gap: 4px; }
             
             .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
             .grid-activos.list-view .card-top-toolbar { display: none; }
@@ -862,7 +903,6 @@ def dashboard():
             .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; cursor: pointer; }
             .grid-activos.list-view .sparkline-container { width: 80px; height: 25px; margin-top: 0; }
             .grid-activos.list-view .levels-box { display: none; }
-            .grid-activos.list-view .card-buttons { display: flex; gap: 4px; margin-top: 0; }
             .grid-activos.list-view .list-actions-bar { display: flex; gap: 6px; align-items: center; }
 
             .badge { padding: 3px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: bold; }
@@ -894,8 +934,6 @@ def dashboard():
 
             .manual-box { background: #0b132b; border: 1px solid #38bdf8; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 0.8rem; color: #cbd5e1; }
             .manual-tag { font-weight: bold; display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; margin-right: 4px; }
-            .btn-reorder { background: #3a506b; color: #fff; border: none; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; }
-            .btn-reorder:hover { background: #38bdf8; color: #0b132b; }
             
             .input-group { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
             .input-group label { font-size: 0.72rem; color: #38bdf8; margin-bottom: 3px; font-weight: bold; }
@@ -927,18 +965,26 @@ def dashboard():
         </div>
         
         <div class="control-panel">
+            <!-- BOTONES DE SELECCIÓN DE MERCADO -->
+            <div style="display:flex; gap:4px; align-items:center;">
+                <span style="font-size:0.75rem; color:#38bdf8; font-weight:bold;">MERCADO:</span>
+                <button onclick="cambiarMercado('NY')" id="btn-mercado-NY" class="btn-mercado active">🇺🇸 NY</button>
+                <button onclick="cambiarMercado('LONDRES')" id="btn-mercado-LONDRES" class="btn-mercado">🇬🇧 Londres</button>
+                <button onclick="cambiarMercado('ASIA')" id="btn-mercado-ASIA" class="btn-mercado">🇯🇵 Asia</button>
+            </div>
+
             <div style="position: relative;">
                 <input type="text" id="new-ticker" placeholder="Buscar Ticker..." list="datalist-tickers" onkeydown="if(event.key==='Enter') agregarActivo()" autocomplete="off" />
                 <datalist id="datalist-tickers"></datalist>
             </div>
-            <button onclick="agregarActivo()">+ Seguir Activo</button>
+            <button onclick="agregarActivo()">+ Seguir</button>
             <select id="select-tf" onchange="cambiarTimeframe(this.value)">
                 <option value="1h">1H (Intradiario)</option>
                 <option value="4h">4H (Swing)</option>
                 <option value="1d">1D (Diario)</option>
             </select>
-            <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Vista Lista Compacta</button>
-            <button onclick="solicitarPermisoNotificaciones()" style="background:#f59e0b; color:#0b132b;" title="Recibe alertas nativas en el navegador">🔔 Activar Alertas</button>
+            <button onclick="toggleVista()" id="btn-vista" style="background:#3a506b; color:#fff;">📋 Lista</button>
+            <button onclick="solicitarPermisoNotificaciones()" style="background:#f59e0b; color:#0b132b;" title="Recibe alertas nativas">🔔 Alertas</button>
         </div>
 
         <div class="container">
@@ -1000,15 +1046,15 @@ def dashboard():
                 </div>
 
                 <div class="edu-panel">
-                    <div class="feed-title">📖 Manual PRO & Algoritmo</div>
-                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Señales</button>
+                    <div class="feed-title">📖 Manual PRO & Horarios</div>
+                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Mercados</button>
                     
                     <div id="box-manual" class="manual-box" style="display:none;">
-                        <b>🏷️ Prioridad Automática:</b><br>
-                        • <b>Urgente (Primero):</b> Rupturas confirmadas y rebotes listos para operar.<br>
-                        • <b>Monitoreo Activo (Medio):</b> Activos preparándose en zonas de soporte o con avisos en cartera.<br>
-                        • <b>Estáticos (Últimos):</b> Activos en espera o sin movimiento relevante.<br><br>
-                        💡 <b>Ayuda:</b> Haz clic en cualquier estado o etiqueta para ver explicaciones sencillas.
+                        <b>⏰ Horarios de Sesiones Globales:</b><br>
+                        • 🇺🇸 <b>Nueva York (NYSE):</b> 09:30 a 16:00 hora NY.<br>
+                        • 🇬🇧 <b>Londres (LSE):</b> 08:00 a 16:30 hora Londres.<br>
+                        • 🇯🇵 <b>Asia (Tokio):</b> 09:00 a 15:30 hora Tokio (con receso de almuerzo 11:30-12:30).<br><br>
+                        💡 <b>Nota:</b> Usa los botones superiores para cambiar de mercado y ver el reloj de cuenta regresiva de apertura/cierre correspondiente. Haz clic en cualquier estado para explicaciones sencillas.
                     </div>
                 </div>
             </div>
@@ -1163,12 +1209,23 @@ def dashboard():
                 const grid = document.getElementById('grid-mercado');
                 if(modoLista) {
                     grid.classList.add('list-view');
-                    document.getElementById('btn-vista').innerText = "🔲 Vista Cuadrícula";
+                    document.getElementById('btn-vista').innerText = "🔲 Cuadrícula";
                 } else {
                     grid.classList.remove('list-view');
-                    document.getElementById('btn-vista').innerText = "📋 Vista Lista Compacta";
+                    document.getElementById('btn-vista').innerText = "📋 Lista";
                 }
                 renderizarGridMercado();
+            }
+
+            async function cambiarMercado(mercado) {
+                mostrarBannerCarga(true);
+                await fetch('/api/mercado', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ mercado: mercado })
+                });
+                await actualizarApp(true);
+                mostrarBannerCarga(false);
             }
 
             function mostrarModal(ticker) {
@@ -1317,27 +1374,34 @@ def dashboard():
                 actualizarApp(true);
             }
 
-            // FUNCIÓN DE ORDENAMIENTO AUTOMÁTICO POR URGENCIA
             function obtenerPuntajeUrgencia(ticker) {
                 const info = mercadoGlobalData[ticker];
                 if (!info) return 3;
                 const st = info.estado_entrada || "";
-                if (st.includes("BUENA ENTRADA") || st.includes("REBOTE")) return 1; // 🚨 URGENTE (Accionar)
-                if (st.includes("PREPARANDO") || st.includes("SOBRE") || st.includes("FALSO")) return 2; // ⚡ MONITOREAR ACTIVAMENTE
-                return 3; // ⏳ ESTÁTICO / ESPERAR
+                if (st.includes("BUENA ENTRADA") || st.includes("REBOTE")) return 1;
+                if (st.includes("PREPARANDO") || st.includes("SOBRE") || st.includes("FALSO")) return 2;
+                return 3;
             }
 
             async function actualizarApp(forzarRender = false) {
                 try {
                     const res = await fetch('/api/data');
-                    const { mercado, alertas, cartera, timeframe, horario, cuenta_regresiva, sugerencias, catalogo, activos_orden } = await res.json();
+                    const { mercado, alertas, cartera, timeframe, mercado_actual, horario, cuenta_regresiva, sugerencias, catalogo, activos_orden } = await res.json();
                     
                     document.getElementById('select-tf').value = timeframe;
                     if(activos_orden) ordenActivosGlobal = activos_orden;
                     if(mercado) mercadoGlobalData = mercado;
                     if(catalogo) catalogoGlobal = catalogo;
 
-                    // ORDENAR AUTOMÁTICAMENTE SEGÚN URGENCIA
+                    // Actualizar botones de mercado activos
+                    ['NY', 'LONDRES', 'ASIA'].forEach(m => {
+                        const btn = document.getElementById(`btn-mercado-${m}`);
+                        if(btn) {
+                            if(m === mercado_actual) btn.classList.add('active');
+                            else btn.classList.remove('active');
+                        }
+                    });
+
                     if(ordenActivosGlobal.length > 0 && Object.keys(mercadoGlobalData).length > 0) {
                         ordenActivosGlobal.sort((a, b) => obtenerPuntajeUrgencia(a) - obtenerPuntajeUrgencia(b));
                     }
@@ -1415,7 +1479,7 @@ def dashboard():
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button>
                                         <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
                                         <a href="https://www.tradingview.com/chart/?symbol=${s.ticker}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TradingView</a>
-                                        <button onclick="mostrarModal('${s.ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
+                                        <button onclick="mostrarModal('${s.ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️ Info</button>
                                     </div>
                                 </div>
                             `;
