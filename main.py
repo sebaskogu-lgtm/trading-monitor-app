@@ -78,16 +78,63 @@ def init_db():
     cursor.execute("""
             CREATE TABLE IF NOT EXISTS configuracion (
                 id INT PRIMARY KEY,
-                activos TEXT,
-                cartera TEXT
+                mercado_actual TEXT,
+                datos TEXT
             );
         """)
     cursor.execute("SELECT COUNT(*) FROM configuracion WHERE id=1;")
     if cursor.fetchone()[0] == 0:
+      default_datos = {
+          "NY": {
+              "activos": [
+                  "SPY",
+                  "QQQ",
+                  "NVDA",
+                  "AAPL",
+                  "MSFT",
+                  "AMZN",
+                  "GOOGL",
+                  "META",
+                  "TSLA",
+                  "BTC-USD",
+              ],
+              "cartera": [],
+          },
+          "LONDRES": {
+              "activos": [
+                  "SHEL.L",
+                  "AZN.L",
+                  "ULVR.L",
+                  "HSBA.L",
+                  "BP.L",
+                  "GSK.L",
+                  "RIO.L",
+                  "BARC.L",
+                  "LLOY.L",
+                  "VOD.L",
+              ],
+              "cartera": [],
+          },
+          "ASIA": {
+              "activos": [
+                  "7203.T",
+                  "6758.T",
+                  "7974.T",
+                  "9984.T",
+                  "8306.T",
+                  "6861.T",
+                  "6501.T",
+                  "4063.T",
+                  "6902.T",
+                  "8035.T",
+              ],
+              "cartera": [],
+          },
+      }
       cursor.execute(
-          "INSERT INTO configuracion (id, activos, cartera) VALUES (1, %s,"
-          " %s);",
-          (json.dumps(["QQQ", "SPY", "NVDA", "AAPL", "BTC-USD"]), json.dumps([])),
+          "INSERT INTO configuracion (id, mercado_actual, datos) VALUES (1,"
+          " %s, %s);",
+          ("NY", json.dumps(default_datos)),
       )
     conn.commit()
     cursor.close()
@@ -100,53 +147,93 @@ def init_db():
 init_db()
 
 
-def db_get(campo):
+def db_get_all_data():
+  default_market = "NY"
+  default_datos = {
+      "NY": {
+          "activos": [
+              "SPY",
+              "QQQ",
+              "NVDA",
+              "AAPL",
+              "MSFT",
+              "AMZN",
+              "GOOGL",
+              "META",
+              "TSLA",
+              "BTC-USD",
+          ],
+          "cartera": [],
+      },
+      "LONDRES": {
+          "activos": [
+              "SHEL.L",
+              "AZN.L",
+              "ULVR.L",
+              "HSBA.L",
+              "BP.L",
+              "GSK.L",
+              "RIO.L",
+              "BARC.L",
+              "LLOY.L",
+              "VOD.L",
+          ],
+          "cartera": [],
+      },
+      "ASIA": {
+          "activos": [
+              "7203.T",
+              "6758.T",
+              "7974.T",
+              "9984.T",
+              "8306.T",
+              "6861.T",
+              "6501.T",
+              "4063.T",
+              "6902.T",
+              "8035.T",
+          ],
+          "cartera": [],
+      },
+  }
   conn = get_db_connection()
   if not conn:
-    return [
-        "QQQ",
-        "SPY",
-        "NVDA",
-        "AAPL",
-        "BTC-USD",
-    ] if campo == "activos" else []
+    return default_market, default_datos
   try:
     cursor = conn.cursor()
-    cursor.execute(f"SELECT {campo} FROM configuracion WHERE id=1;")
+    cursor.execute("SELECT mercado_actual, datos FROM configuracion WHERE id=1;")
     row = cursor.fetchone()
     cursor.close()
     conn.close()
-    return json.loads(row[0]) if row and row[0] else []
+    if row:
+      m_act = row[0] or "NY"
+      d_json = json.loads(row[1]) if row[1] else default_datos
+      return m_act, d_json
+    return default_market, default_datos
   except Exception as e:
-    print(f"❌ Error leyendo DB ({campo}):", e)
-    return [
-        "QQQ",
-        "SPY",
-        "NVDA",
-        "AAPL",
-        "BTC-USD",
-    ] if campo == "activos" else []
+    print("❌ Error leyendo DB:", e)
+    return default_market, default_datos
 
 
-def db_set(campo, valor):
+def db_save_all_data(mercado_act, datos):
   conn = get_db_connection()
   if not conn:
-    print("❌ No se pudo guardar: Sin conexión a base de datos.")
     return
   try:
     cursor = conn.cursor()
     cursor.execute(
-        f"UPDATE configuracion SET {campo} = %s WHERE id=1;",
-        (json.dumps(valor),),
+        "UPDATE configuracion SET mercado_actual = %s, datos = %s WHERE id=1;",
+        (mercado_act, json.dumps(datos)),
     )
     conn.commit()
     cursor.close()
     conn.close()
   except Exception as e:
-    print(f"❌ Error guardando DB ({campo}):", e)
+    print("❌ Error guardando DB:", e)
 
 
 CATALOGO_TICKERS = {
+    # Wall Street (NY)
     "AAPL": {
         "nombre": "Apple Inc.",
         "desc": "Gigante tecnológico de consumo, software y servicios digitales.",
@@ -227,16 +314,180 @@ CATALOGO_TICKERS = {
         "desc": "Red principal para contratos inteligentes y finanzas descentralizadas.",
         "estrategia": "Estructuras de consolidación seguidas de rupturas con alto volumen.",
     },
+    # Londres (LSE)
+    "SHEL.L": {
+        "nombre": "Shell plc",
+        "desc": "Energía global, petróleo y gas natural.",
+        "estrategia": "Seguimiento de precios del petróleo y dividendos estables.",
+    },
+    "AZN.L": {
+        "nombre": "AstraZeneca PLC",
+        "desc": "Gigante biofarmacéutico y científico global.",
+        "estrategia": "Inversión defensiva en salud con rupturas de resistencia técnica.",
+    },
+    "ULVR.L": {
+        "nombre": "Unilever PLC",
+        "desc": "Bienes de consumo masivo y productos de hogar.",
+        "estrategia": "Operativa de rango en mercados defensivos.",
+    },
+    "HSBA.L": {
+        "nombre": "HSBC Holdings plc",
+        "desc": "Banca internacional con fuerte presencia en Asia y Europa.",
+        "estrategia": "Sensibilidad a tipos de interés globales y flujos bancarios.",
+    },
+    "BP.L": {
+        "nombre": "BP p.l.c.",
+        "desc": "Producción energética e infraestructura petrolera.",
+        "estrategia": "Rebotes en soportes clave y correlación con crudo Brent.",
+    },
+    "GSK.L": {
+        "nombre": "GSK plc",
+        "desc": "Desarrollo farmacéutico, vacunas y salud global.",
+        "estrategia": "Comportamiento defensivo ante alta volatilidad de mercado.",
+    },
+    "RIO.L": {
+        "nombre": "Rio Tinto plc",
+        "desc": "Minería global y extracción de metales industriales (hierro, cobre).",
+        "estrategia": "Correlación directa con la demanda de materias primas en China.",
+    },
+    "BARC.L": {
+        "nombre": "Barclays PLC",
+        "desc": "Banca de inversión y servicios financieros en Reino Unido.",
+        "estrategia": "Alta volatilidad intradiaria en aperturas europeas.",
+    },
+    "LLOY.L": {
+        "nombre": "Lloyds Banking Group",
+        "desc": "Líder en banca minorista e hipotecaria británica.",
+        "estrategia": "Seguimiento de tendencia macroeconómica del Reino Unido.",
+    },
+    "VOD.L": {
+        "nombre": "Vodafone Group Plc",
+        "desc": "Telecomunicaciones móviles y redes de fibra óptica.",
+        "estrategia": "Operativa de dividendos y estabilidad en rangos estrechos.",
+    },
+    # Asia (Tokio)
+    "7203.T": {
+        "nombre": "Toyota Motor Corp",
+        "desc": "Liderazgo mundial en fabricación y tecnología automotriz.",
+        "estrategia": "Seguimiento de tipo de cambio USD/JPY y flujos institucionales.",
+    },
+    "6758.T": {
+        "nombre": "Sony Group Corp",
+        "desc": "Electrónica de consumo, entretenimiento, cine y videojuegos.",
+        "estrategia": "Quiebres de resistencia impulsados por lanzamientos de productos.",
+    },
+    "7974.T": {
+        "nombre": "Nintendo Co Ltd",
+        "desc": "Desarrollo de consolas y franquicias icónicas de videojuegos.",
+        "estrategia": "Alta volatilidad ligada al ciclo de lanzamientos y temporada.",
+    },
+    "9984.T": {
+        "nombre": "SoftBank Group Corp",
+        "desc": "Inversión en tecnología global, IA y fondos de riesgo (Vision Fund).",
+        "estrategia": "Correlación con el sector tecnológico global y valoración de startups.",
+    },
+    "8306.T": {
+        "nombre": "Mitsubishi UFJ Financial",
+        "desc": "Gigante bancario y financiero japonés.",
+        "estrategia": "Sensibilidad a la política monetaria del Banco de Japón (BOJ).",
+    },
+    "6861.T": {
+        "nombre": "Keyence Corp",
+        "desc": "Automatización industrial, sensores y sistemas de medición de alta precisión.",
+        "estrategia": "Crecimiento estructural ligado a la manufactura avanzada global.",
+    },
+    "6501.T": {
+        "nombre": "Hitachi Ltd",
+        "desc": "Infraestructura digital, energía, sistemas ferroviarios y tecnología industrial.",
+        "estrategia": "Contratos gubernamentales e industriales de largo plazo.",
+    },
+    "4063.T": {
+        "nombre": "Shin-Etsu Chemical",
+        "desc": "Líder mundial en obleas de silicio para semiconductores y materiales de PVC.",
+        "estrategia": "Correlación estrecha con el ciclo global de chips y semiconductores.",
+    },
+    "6902.T": {
+        "nombre": "Denso Corp",
+        "desc": "Componentes y sistemas avanzados para la industria automotriz.",
+        "estrategia": "Innovación en vehículos eléctricos y conducción autónoma.",
+    },
+    "8035.T": {
+        "nombre": "Tokyo Electron Ltd",
+        "desc": "Fabricación de equipos avanzados para producción de semiconductores.",
+        "estrategia": "Alta sensibilidad al ciclo global de chips y demanda de IA.",
+    },
 }
 
-POOL_ESCANER_DINAMICO = [
-    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "NFLX", "AMD",
-    "COIN", "MSTR", "PLTR", "SPY", "QQQ", "INTC", "BA", "JPM", "DIS", "XOM",
-    "BABA", "BTC-USD", "ETH-USD", "ARM", "SMCI", "MU", "QCOM", "AVGO", "MARA", "RIOT"
-]
+POOLS_ESCANER = {
+    "NY": [
+        "AAPL",
+        "MSFT",
+        "AMZN",
+        "NVDA",
+        "GOOGL",
+        "META",
+        "TSLA",
+        "NFLX",
+        "AMD",
+        "COIN",
+        "MSTR",
+        "PLTR",
+        "SPY",
+        "QQQ",
+        "INTC",
+        "BA",
+        "JPM",
+        "DIS",
+        "XOM",
+        "BABA",
+        "BTC-USD",
+        "ETH-USD",
+        "ARM",
+        "SMCI",
+        "MU",
+        "QCOM",
+        "AVGO",
+        "MARA",
+        "RIOT",
+    ],
+    "LONDRES": [
+        "SHEL.L",
+        "AZN.L",
+        "ULVR.L",
+        "HSBA.L",
+        "BP.L",
+        "GSK.L",
+        "RIO.L",
+        "BARC.L",
+        "LLOY.L",
+        "VOD.L",
+        "RR.L",
+        "AAL.L",
+        "NG.L",
+        "VRSK.L",
+        "LSEG.L",
+    ],
+    "ASIA": [
+        "7203.T",
+        "6758.T",
+        "7974.T",
+        "9984.T",
+        "8306.T",
+        "6861.T",
+        "6501.T",
+        "4063.T",
+        "6902.T",
+        "8035.T",
+        "6752.T",
+        "7267.T",
+        "4307.T",
+        "6301.T",
+        "9432.T",
+    ],
+}
 
 timeframe_actual = "1h"
-mercado_actual = "NY"  # "NY", "LONDRES", "ASIA"
+mercado_actual, db_datos = db_get_all_data()
 estado_mercado = {}
 historial_alertas = []
 recomendaciones_escaner = []
@@ -269,25 +520,25 @@ def obtener_info_horario():
   global mercado_actual
   if mercado_actual == "LONDRES":
     tz = pytz.timezone("Europe/London")
-    t = datetime.now(tz)
     nombre_mercado = "Londres (LSE)"
     open_h, open_m = 8, 0
     close_h, close_m = 16, 30
     has_lunch = False
   elif mercado_actual == "ASIA":
     tz = pytz.timezone("Asia/Tokyo")
-    t = datetime.now(tz)
     nombre_mercado = "Asia (Tokio)"
     open_h, open_m = 9, 0
     close_h, close_m = 15, 30
     has_lunch = True
   else:
     tz = pytz.timezone("America/New_York")
-    t = datetime.now(tz)
     nombre_mercado = "Nueva York (NYSE)"
     open_h, open_m = 9, 30
     close_h, close_m = 16, 0
     has_lunch = False
+
+  t = datetime.now(tz)
+  hora_mercado_str = t.strftime("%H:%M:%S")
 
   if t.weekday() > 4:
     dias_hasta_lunes = (7 - t.weekday()) % 7
@@ -301,7 +552,8 @@ def obtener_info_horario():
     horas, rem = divmod(int(diff.total_seconds()), 3600)
     minutos, segundos = divmod(rem, 60)
     return (
-        f"🔴 {nombre_mercado} CERRADO (Fin de semana)",
+        f"🔴 {nombre_mercado} CERRADO (Fin de semana) | Hora Local:"
+        f" {hora_mercado_str}",
         f"Abre en {horas // 24}d {horas % 24}h {minutos}m {segundos}s",
     )
 
@@ -319,24 +571,38 @@ def obtener_info_horario():
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, s = divmod(r, 60)
-    return f"🔴 {nombre_mercado} CERRADO (Pre-apertura)", f"Abre en {h}h {m}m {s}s"
+    return (
+        f"🔴 {nombre_mercado} CERRADO (Pre-apertura) | Hora Local:"
+        f" {hora_mercado_str}",
+        f"Abre en {h}h {m}m {s}s",
+    )
   elif t > m_close:
     proxima = m_open + timedelta(days=1)
     diff = proxima - t
     seg = int(diff.total_seconds())
     h, s = divmod(seg, 60)
-    return f"🔴 {nombre_mercado} CERRADO", f"Abre mañana en {h}h {s}m"
+    return (
+        f"🔴 {nombre_mercado} CERRADO | Hora Local: {hora_mercado_str}",
+        f"Abre mañana en {h}h {s}m",
+    )
   elif has_lunch and lunch_start <= t < lunch_end:
     diff = lunch_end - t
     seg = int(diff.total_seconds())
     m, s = divmod(seg, 60)
-    return f"☕ {nombre_mercado} RECESO (Almuerzo)", f"Vuelve en {m}m {s}s"
+    return (
+        f"☕ {nombre_mercado} RECESO (Almuerzo) | Hora Local:"
+        f" {hora_mercado_str}",
+        f"Vuelve en {m}m {s}s",
+    )
   else:
     diff = m_close - t
     seg = int(diff.total_seconds())
     h, r = divmod(seg, 3600)
     m, s = divmod(r, 60)
-    return f"🟢 {nombre_mercado} ABIERTO", f"Cierra en {h}h {m}m {s}s"
+    return (
+        f"🟢 {nombre_mercado} ABIERTO | Hora Local: {hora_mercado_str}",
+        f"Cierra en {h}h {m}m {s}s",
+    )
 
 
 def obtener_config_tf(tf: str):
@@ -469,7 +735,9 @@ def procesar_ticker(symbol, tf_local):
           estado_entrada = f"🟢 BUENA ENTRADA (Quiebre){riesgo_macro_str}"
       elif 0 < distancia_resistencia <= 1.2 and tendencia == "ALZA":
         if en_zona_fib:
-          estado_entrada = f"⏳ PREPARANDO (Apoyo Fib | RSI {rsi_val}){riesgo_macro_str}"
+          estado_entrada = (
+              f"⏳ PREPARANDO (Apoyo Fib | RSI {rsi_val}){riesgo_macro_str}"
+          )
         else:
           estado_entrada = f"⏳ PREPARANDO RUPTURA (RSI {rsi_val}){riesgo_macro_str}"
       elif rsi_val <= 30.0 and en_zona_fib:
@@ -528,14 +796,15 @@ def procesar_ticker(symbol, tf_local):
 
 
 def escaneo_autonomo():
-  global recomendaciones_escaner
+  global recomendaciones_escaner, mercado_actual
   while True:
     try:
+      pool = POOLS_ESCANER.get(mercado_actual, POOLS_ESCANER["NY"])
       with ThreadPoolExecutor(max_workers=5) as executor:
         resultados = list(
             executor.map(
                 lambda s: procesar_ticker(s, timeframe_actual),
-                POOL_ESCANER_DINAMICO,
+                pool,
             )
         )
 
@@ -567,9 +836,11 @@ def escaneo_autonomo():
 
 
 def analizar_mercado():
-  global estado_mercado, historial_alertas, timeframe_actual
+  global estado_mercado, historial_alertas, timeframe_actual, mercado_actual
   while True:
-    lista_actual = db_get("activos")
+    m_act, datos = db_get_all_data()
+    mercado_actual = m_act
+    lista_actual = datos.get(mercado_actual, {}).get("activos", [])
     tf_local = timeframe_actual
 
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -582,7 +853,10 @@ def analizar_mercado():
       if r:
         sym = r["symbol"]
         nuevo_estado[sym] = r
-        if "BUENA ENTRADA" in r["estado_entrada"] or "REBOTE EN ZONA" in r["estado_entrada"]:
+        if (
+            "BUENA ENTRADA" in r["estado_entrada"]
+            or "REBOTE EN ZONA" in r["estado_entrada"]
+        ):
           _registrar_alerta(
               sym,
               f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}",
@@ -609,7 +883,9 @@ def analizar_mercado():
 def _evaluar_cartera(
     symbol, precio_actual, sma9, sma21, soporte_tecnico, atr, hora
 ):
-  cartera = db_get("cartera")
+  global mercado_actual
+  m_act, datos = db_get_all_data()
+  cartera = datos.get(mercado_actual, {}).get("cartera", [])
   modificado = False
   for pos in cartera:
     if pos["ticker"] == symbol:
@@ -621,7 +897,12 @@ def _evaluar_cartera(
       if sma9 < sma21:
         estado_pos = "⚠️ CRUCE BAJISTA"
         _registrar_alerta(
-            symbol, f"⚠️ CARTERA: Pérdida de impulso.", precio_actual, hora, soporte_tecnico, pos["tp_usuario"]
+            symbol,
+            "⚠️ CARTERA: Pérdida de impulso.",
+            precio_actual,
+            hora,
+            soporte_tecnico,
+            pos["tp_usuario"],
         )
       elif p_ganancia >= 2.0:
         estado_pos = "🟢 EN GANANCIA"
@@ -647,7 +928,8 @@ def _evaluar_cartera(
       modificado = True
 
   if modificado:
-    db_set("cartera", cartera)
+    datos[mercado_actual]["cartera"] = cartera
+    db_save_all_data(mercado_actual, datos)
 
 
 def _registrar_alerta(symbol, evento, precio, hora, sl=0, tp=0):
@@ -683,39 +965,24 @@ def notificar_suscriptores():
       pass
 
 
-@app.get("/api/debug-db")
-def debug_db():
-  conn = get_db_connection()
-  if not conn:
-    return {"status": "error", "message": "No connection to Supabase."}
-  try:
-    cursor = conn.cursor()
-    cursor.execute("SELECT activos FROM configuracion WHERE id=1;")
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return {
-        "status": "ok",
-        "activos_en_bd": json.loads(row[0]) if row else None,
-    }
-  except Exception as e:
-    return {"status": "error", "detalle": str(e)}
-
-
 @app.get("/api/data")
 def obtener_datos():
+  global mercado_actual
+  m_act, datos = db_get_all_data()
+  mercado_actual = m_act
+  mercado_info = datos.get(mercado_actual, {"activos": [], "cartera": []})
   estado, cuenta_reg = obtener_info_horario()
   return {
       "mercado": estado_mercado,
       "alertas": historial_alertas,
-      "cartera": db_get("cartera"),
+      "cartera": mercado_info.get("cartera", []),
       "timeframe": timeframe_actual,
       "mercado_actual": mercado_actual,
       "horario": estado,
       "cuenta_regresiva": cuenta_reg,
       "sugerencias": recomendaciones_escaner,
       "catalogo": CATALOGO_TICKERS,
-      "activos_orden": db_get("activos"),
+      "activos_orden": mercado_info.get("activos", []),
   }
 
 
@@ -745,6 +1012,7 @@ async def stream_endpoint(request: Request):
 
 @app.post("/api/add")
 async def agregar_activo(request: Request):
+  global mercado_actual
   try:
     data = await request.json()
     symbol = data.get("ticker", "").strip().upper()
@@ -752,10 +1020,12 @@ async def agregar_activo(request: Request):
     symbol = ""
 
   if symbol:
-    activos = db_get("activos")
+    m_act, datos = db_get_all_data()
+    mercado_actual = m_act
+    activos = datos[mercado_actual]["activos"]
     if symbol not in activos:
       activos.append(symbol)
-      db_set("activos", activos)
+      db_save_all_data(mercado_actual, datos)
 
       def _fetch_and_update():
         res = procesar_ticker(symbol, timeframe_actual)
@@ -769,6 +1039,7 @@ async def agregar_activo(request: Request):
 
 @app.post("/api/remove")
 async def eliminar_activo(request: Request):
+  global mercado_actual
   try:
     data = await request.json()
     symbol = data.get("ticker", "").strip().upper()
@@ -776,10 +1047,12 @@ async def eliminar_activo(request: Request):
     symbol = ""
 
   if symbol:
-    activos = db_get("activos")
+    m_act, datos = db_get_all_data()
+    mercado_actual = m_act
+    activos = datos[mercado_actual]["activos"]
     if symbol in activos:
       activos.remove(symbol)
-      db_set("activos", activos)
+      db_save_all_data(mercado_actual, datos)
       if symbol in estado_mercado:
         del estado_mercado[symbol]
   return {"status": "ok"}
@@ -787,14 +1060,23 @@ async def eliminar_activo(request: Request):
 
 @app.post("/api/reorder")
 async def reordenar_activos(item: ReordenarModel):
+  global mercado_actual
   if item.activos:
-    db_set("activos", [s.strip().upper() for s in item.activos if s.strip()])
+    m_act, datos = db_get_all_data()
+    mercado_actual = m_act
+    datos[mercado_actual]["activos"] = [
+        s.strip().upper() for s in item.activos if s.strip()
+    ]
+    db_save_all_data(mercado_actual, datos)
   return {"status": "ok"}
 
 
 @app.post("/api/cartera/add")
 def agregar_cartera(item: PosicionModel):
-  cartera = db_get("cartera")
+  global mercado_actual
+  m_act, datos = db_get_all_data()
+  mercado_actual = m_act
+  cartera = datos[mercado_actual]["cartera"]
   ticker = item.ticker.strip().upper()
   distancia_sl = abs(item.precio_compra - item.sl_usuario)
   acciones = (
@@ -816,21 +1098,26 @@ def agregar_cartera(item: PosicionModel):
       "estado": "🔵 MANTENER",
       "analisis_sl": "Analizando...",
   })
-  db_set("cartera", cartera)
+  datos[mercado_actual]["cartera"] = cartera
+  db_save_all_data(mercado_actual, datos)
   return {"status": "ok"}
 
 
 @app.post("/api/cartera/remove")
 async def eliminar_cartera(request: Request):
+  global mercado_actual
   try:
     data = await request.json()
     ticker = data.get("ticker", "").strip().upper()
   except Exception:
     ticker = ""
   if ticker:
-    cartera = db_get("cartera")
+    m_act, datos = db_get_all_data()
+    mercado_actual = m_act
+    cartera = datos[mercado_actual]["cartera"]
     cartera = [p for p in cartera if p["ticker"] != ticker]
-    db_set("cartera", cartera)
+    datos[mercado_actual]["cartera"] = cartera
+    db_save_all_data(mercado_actual, datos)
   return {"status": "ok"}
 
 
@@ -845,9 +1132,12 @@ def cambiar_timeframe(item: TimeframeModel):
 
 @app.post("/api/mercado")
 def cambiar_mercado(item: MercadoModel):
-  global mercado_actual
+  global mercado_actual, estado_mercado
   if item.mercado in ["NY", "LONDRES", "ASIA"]:
+    m_act, datos = db_get_all_data()
     mercado_actual = item.mercado
+    db_save_all_data(mercado_actual, datos)
+    estado_mercado = {}
   return {"status": "ok"}
 
 
@@ -879,7 +1169,6 @@ def dashboard():
             .btn-mercado { background: #3a506b; color: #cbd5e1; border: 1px solid #3a506b; }
             .btn-mercado.active { background: #38bdf8; color: #0b132b; border-color: #7dd3fc; font-weight: 800; }
 
-            /* DISEÑO DE COLUMNAS OPTIMIZADO PARA MÓVIL (Alertas primero en celular) */
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; }
             @media (max-width: 900px) { 
                 .container { grid-template-columns: 1fr; } 
@@ -965,7 +1254,6 @@ def dashboard():
         </div>
         
         <div class="control-panel">
-            <!-- BOTONES DE SELECCIÓN DE MERCADO -->
             <div style="display:flex; gap:4px; align-items:center;">
                 <span style="font-size:0.75rem; color:#38bdf8; font-weight:bold;">MERCADO:</span>
                 <button onclick="cambiarMercado('NY')" id="btn-mercado-NY" class="btn-mercado active">🇺🇸 NY</button>
@@ -988,7 +1276,6 @@ def dashboard():
         </div>
 
         <div class="container">
-            <!-- COLUMNA PRINCIPAL DE ACTIVOS Y CARTERA -->
             <div>
                 <h3>Activos bajo Monitoreo (Orden Automático por Urgencia)</h3>
                 <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
@@ -1033,7 +1320,6 @@ def dashboard():
                 </div>
             </div>
             
-            <!-- COLUMNA LATERAL (EN MÓVIL APARECE PRIMERO ARRIBA PARA ACCESO RÁPIDO) -->
             <div class="sidebar-prioritario">
                 <div class="feed-panel">
                     <div class="feed-title">🚨 Feed de Alertas en Vivo (Acción Urgente)</div>
@@ -1054,7 +1340,7 @@ def dashboard():
                         • 🇺🇸 <b>Nueva York (NYSE):</b> 09:30 a 16:00 hora NY.<br>
                         • 🇬🇧 <b>Londres (LSE):</b> 08:00 a 16:30 hora Londres.<br>
                         • 🇯🇵 <b>Asia (Tokio):</b> 09:00 a 15:30 hora Tokio (con receso de almuerzo 11:30-12:30).<br><br>
-                        💡 <b>Nota:</b> Usa los botones superiores para cambiar de mercado y ver el reloj de cuenta regresiva de apertura/cierre correspondiente. Haz clic en cualquier estado para explicaciones sencillas.
+                        💡 <b>Nota:</b> Al cambiar de mercado en el botón superior, los 10 activos por defecto y tu cartera se adaptan automáticamente a esa bolsa. El reloj muestra la hora exacta del mercado seleccionado.
                     </div>
                 </div>
             </div>
@@ -1168,13 +1454,6 @@ def dashboard():
                     queHacer: "Espera unos segundos a que reciba la primera actualización en vivo."
                 }
             };
-
-            setInterval(() => {
-                const now = new Date();
-                const timeString = now.toLocaleTimeString();
-                const el = document.getElementById('reloj-segundos-local');
-                if(el) el.innerText = timeString;
-            }, 1000);
 
             function solicitarPermisoNotificaciones() {
                 if (!("Notification" in window)) {
@@ -1393,7 +1672,6 @@ def dashboard():
                     if(mercado) mercadoGlobalData = mercado;
                     if(catalogo) catalogoGlobal = catalogo;
 
-                    // Actualizar botones de mercado activos
                     ['NY', 'LONDRES', 'ASIA'].forEach(m => {
                         const btn = document.getElementById(`btn-mercado-${m}`);
                         if(btn) {
@@ -1417,7 +1695,7 @@ def dashboard():
                     }
 
                     document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator" title="Sincronización en vivo activa"></span>`;
-                    document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva} | Local: <span id="reloj-segundos-local">...</span>`;
+                    document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva}`;
 
                     if (alertas && alertas.length > 0) {
                         const ultima = alertas[0];
@@ -1502,7 +1780,7 @@ def dashboard():
                                     <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:3px 6px;">+ Seguir Activo</button>
                                     <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Operar</button>
                                     <a href="https://www.tradingview.com/chart/?symbol=${a.symbol}" target="_blank" style="background:#0b132b; color:#38bdf8; border:1px solid #3a506b; padding:3px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center;">📈 TradingView</a>
-                                    <button onclick="mostrarModal('${a.symbol}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:3px 6px;">ℹ️ Info</button>
+                                    <button onclick="mostrarModal('${a.symbol}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️ Info</button>
                                 </div>
                             </div>
                         `).join('');
