@@ -392,11 +392,14 @@ def auto_sufijo(sym, mer):
 @app.post("/api/add")
 async def agregar_activo(req: Request):
   d = await req.json()
-  sym = auto_sufijo(d.get("ticker", "").strip().upper(), APP_CONFIG["mercado_actual"])
-  if sym and sym not in APP_CONFIG["datos"][APP_CONFIG["mercado_actual"]]["activos"]:
-    APP_CONFIG["datos"][APP_CONFIG["mercado_actual"]]["activos"].append(sym)
+  sym = d.get("ticker", "").strip().upper()
+  mer = d.get("mercado", APP_CONFIG["mercado_actual"])
+  sym = auto_sufijo(sym, mer)
+  if sym and sym not in APP_CONFIG["datos"][mer]["activos"]:
+    APP_CONFIG["datos"][mer]["activos"].append(sym)
     db_save_all_data()
-    threading.Thread(target=procesar_lote_mercado, daemon=True).start()
+    if mer == APP_CONFIG["mercado_actual"]:
+      threading.Thread(target=procesar_lote_mercado, daemon=True).start()
   return {"status": "ok"}
 
 @app.post("/api/remove")
@@ -462,9 +465,10 @@ async def eliminar_cartera(req: Request):
 
 @app.post("/api/simulador")
 def endpoint_simulador(item: SimuladorModel):
-  # Combina los activos default de los 3 mercados para hacer un barrido real
   tickers_eval = []
-  for m in ["NY", "LONDRES", "ASIA"]: tickers_eval.extend([(t, m) for t in POOLS_ESCANER[m]])
+  for m in ["NY", "LONDRES", "ASIA"]: 
+    for t in POOLS_ESCANER[m]:
+      tickers_eval.append((t, m))
   
   def fetch_sim(t_tuple):
     sym, m = t_tuple
@@ -475,7 +479,7 @@ def endpoint_simulador(item: SimuladorModel):
     if not ("BUENA ENTRADA" in st or "PREPARANDO" in st or "REBOTE" in st): return None
     
     precio = res["precio"]
-    lote = 100 if m == "ASIA" else 1 # Lógica real TSE (Tokio)
+    lote = 100 if m == "ASIA" else 1
     
     if item.fracciones: acciones = item.capital / precio
     else: acciones = (item.capital // (precio * lote)) * lote
@@ -495,6 +499,7 @@ def endpoint_simulador(item: SimuladorModel):
     res["sim_rie"] = round(rie, 2)
     res["sim_ben"] = round(ben, 2)
     res["sim_rat"] = round(ben / rie, 1)
+    res["mercado_origen"] = m
     return res
 
   with ThreadPoolExecutor(max_workers=10) as ex:
@@ -547,15 +552,6 @@ def dashboard():
             .price { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
             .card-top-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #3a506b; padding-bottom: 6px; }
             
-            .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
-            .grid-activos.list-view .card-top-toolbar { display: none; }
-            .grid-activos.list-view .card-header { margin-bottom: 0; width: 160px; }
-            .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 75px; }
-            .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; cursor: pointer; }
-            .grid-activos.list-view .sparkline-container { width: 80px; height: 25px; margin-top: 0; }
-            .grid-activos.list-view .levels-box { display: none; }
-            .grid-activos.list-view .list-actions-bar { display: flex; gap: 6px; align-items: center; }
-
             .badge { padding: 3px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: bold; }
             .tf-badge { background: #3a506b; color: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; }
             .flag-badge { font-size: 0.8rem; margin-right: 4px; }
@@ -595,15 +591,15 @@ def dashboard():
             .modal-content { background: #1c2541; padding: 20px; border-radius: 10px; border: 1px solid #38bdf8; width: 90%; max-width: 500px; color: #f8fafc; position: relative; }
             .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer; }
             
-            .sim-card { background: #0b132b; border: 1px solid #38bdf8; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
-            .sim-card .sim-title { font-weight: bold; color: #f8fafc; display: flex; justify-content: space-between; margin-bottom: 6px; }
-            .sim-row { display: flex; justify-content: space-between; font-size: 0.85rem; color: #cbd5e1; margin-top: 3px; }
+            .sim-card { background: #0b132b; border: 1px solid #10b981; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+            .sim-row { display: flex; justify-content: space-between; font-size: 0.85rem; color: #cbd5e1; margin-top: 4px; }
         </style>
     </head>
     <body>
         <div id="pantalla-carga">
             <div class="spinner"></div>
             <h3 style="color:#38bdf8; margin:0;" id="txt-carga">Sincronizando...</h3>
+            <p style="color:#cbd5e1; font-size:0.85rem; margin-top:6px;">Descargando datos del mercado en vivo...</p>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
@@ -666,7 +662,7 @@ def dashboard():
                 <!-- SIMULADOR ESTRICTO -->
                 <div class="feed-panel" style="border-color:#10b981;">
                     <div class="feed-title" style="color:#10b981;">🧪 Simulador Inversión Estricto</div>
-                    <p style="font-size:0.8rem; color:#cbd5e1; margin-top:0;">Filtra y calcula operaciones matemáticas en TODOS los mercados según tu liquidez real.</p>
+                    <p style="font-size:0.8rem; color:#cbd5e1; margin-top:0;">Filtra y calcula operaciones matemáticas en 3 mercados según tu liquidez real.</p>
                     <div style="display:flex; gap:6px; margin-bottom:8px;">
                         <input type="number" id="sim-capital" placeholder="Capital Ej: 300" style="width:100%; border-color:#10b981;">
                         <button onclick="ejecutarSimulador()" style="background:#10b981; color:#fff;">Simular</button>
@@ -682,7 +678,7 @@ def dashboard():
                 </div>
 
                 <div class="feed-panel">
-                    <div class="feed-title">🤖 Escáner Dinámico (Este Mercado)</div>
+                    <div class="feed-title" id="titulo-escaner">🤖 Escáner Dinámico</div>
                     <div id="lista-sugerencias" style="font-size:0.85rem; color:#cbd5e1;">Buscando Momentum y Rebotes...</div>
                 </div>
 
@@ -746,10 +742,23 @@ def dashboard():
             function ocultarCarga() { document.getElementById('pantalla-carga').style.display = 'none'; }
 
             async function cambiarMercado(mercado) {
-                mostrarCarga("Cambiando Bolsa...");
-                document.getElementById('grid-mercado').innerHTML = ''; document.getElementById('lista-alertas').innerHTML = '';
-                await fetch('/api/mercado', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mercado: mercado }) });
-                setTimeout(async () => { await actualizarApp(); ocultarCarga(); }, 1000);
+                mostrarCarga(`Cambiando a ${mercado}...`);
+                document.getElementById('grid-mercado').innerHTML = ''; 
+                document.getElementById('lista-alertas').innerHTML = '';
+                try {
+                    await fetch('/api/mercado', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mercado: mercado }) });
+                    let intentos = 0;
+                    while (intentos < 20) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        try {
+                            const res = await fetch('/api/data');
+                            const data = await res.json();
+                            if (data.mercado_actual === mercado && Object.keys(data.mercado || {}).length > 0) break;
+                        } catch(e) {}
+                        intentos++;
+                    }
+                    await actualizarApp();
+                } finally { ocultarCarga(); }
             }
 
             function formatearLinkTV(ticker, mercado) {
@@ -786,11 +795,11 @@ def dashboard():
                 setTimeout(async () => { await actualizarApp(); ocultarCarga(); }, 800);
             }
 
-            async function agregarActivo(tP = null) {
+            async function agregarActivo(tP = null, mercadoOrigen = null) {
                 const tk = tP || document.getElementById('new-ticker').value.trim();
                 if (!tk) return;
                 mostrarCarga("Agregando activo...");
-                await fetch('/api/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ticker: tk }) });
+                await fetch('/api/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ticker: tk, mercado: mercadoOrigen }) });
                 if(!tP) document.getElementById('new-ticker').value = '';
                 setTimeout(async () => { await actualizarApp(); ocultarCarga(); }, 800);
             }
@@ -826,7 +835,7 @@ def dashboard():
                 const cap = parseFloat(document.getElementById('sim-capital').value);
                 if (isNaN(cap) || cap <= 0) { alert("Ingresa un capital válido."); return; }
                 const divRes = document.getElementById('sim-resultados');
-                divRes.innerHTML = `<span style="color:#facc15; font-size:0.85rem;">Analizando matemáticamente 3 mercados (Esto puede tardar 10-20 seg)...</span>`;
+                divRes.innerHTML = `<span style="color:#facc15; font-size:0.85rem;">Analizando matemáticamente 3 mercados...</span>`;
                 
                 const payload = {
                     capital: cap,
@@ -838,27 +847,42 @@ def dashboard():
                     const r = await fetch('/api/simulador', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
                     const d = await r.json();
                     if (!d.resultados || d.resultados.length === 0) {
-                        divRes.innerHTML = `<span style="color:#f87171; font-size:0.85rem;">Ningún activo válido para tu capital y reglas. (¿Poco capital para Asia sin fracciones?)</span>`;
+                        divRes.innerHTML = `<span style="color:#f87171; font-size:0.85rem;">Ningún activo válido para tu capital y reglas.</span>`;
                         return;
                     }
 
-                    divRes.innerHTML = d.resultados.map(res => `
+                    divRes.innerHTML = d.resultados.map(res => {
+                        const tv = formatearLinkTV(res.symbol, res.mercado_origen);
+                        let clE = 'entrada-wait';
+                        if (res.estado_entrada.includes("BUENA ENTRADA")) clE = 'entrada-ok';
+                        else if (res.estado_entrada.includes("PREPARANDO")) clE = 'entrada-prep';
+                        else if (res.estado_entrada.includes("REBOTE")) clE = 'entrada-rebote';
+
+                        return `
                         <div class="sim-card">
-                            <div class="sim-title">
-                                <span><span class="flag-badge">${res.bandera}</span> ${res.symbol}</span>
-                                <span style="color:#4ade80; font-size:0.75rem;">${res.estado_entrada}</span>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <span style="font-weight:bold; font-size:1.05rem;"><span class="flag-badge">${res.bandera}</span> ${res.symbol}</span>
+                                <span class="${clE}" style="margin-bottom:0; font-size:0.7rem; padding:2px 6px;" onclick="mostrarExplicacionEstado('${res.estado_entrada}')">${res.estado_entrada} 🔍</span>
                             </div>
-                            <div class="sim-row"><span>Precio Activo:</span> <b>$${res.precio}</b></div>
-                            <div class="sim-row" style="color:#38bdf8;"><span>Comprar Acciones:</span> <b>${res.sim_acc} un.</b></div>
+                            <div class="sparkline-container" style="margin:6px 0;">
+                                <svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none">
+                                    <polyline fill="none" stroke="${res.sparkline_color}" stroke-width="2" points="${res.sparkline}" />
+                                </svg>
+                            </div>
+                            <div class="sim-row"><span>Precio:</span> <b>$${res.precio}</b></div>
+                            <div class="sim-row" style="color:#38bdf8;"><span>Cantidad:</span> <b>${res.sim_acc} un.</b></div>
                             <div class="sim-row"><span>Inversión Real:</span> <b>$${res.sim_inv}</b> (Sobra: $${res.sim_sob})</div>
                             <hr style="border:0; border-top:1px solid #3a506b; margin:6px 0;">
-                            <div class="sim-row" style="color:#f87171;"><span>Riesgo Máximo (SL $${res.soporte_tecnico}):</span> <b>-$${res.sim_rie}</b></div>
+                            <div class="sim-row" style="color:#f87171;"><span>Riesgo (SL $${res.soporte_tecnico}):</span> <b>-$${res.sim_rie}</b></div>
                             <div class="sim-row" style="color:#4ade80;"><span>Beneficio (TP $${res.tp_tecnico}):</span> <b>+$${res.sim_ben}</b></div>
-                            <div style="margin-top:8px; text-align:right;">
-                                <button onclick="usarParaOperar('${res.symbol}', ${res.precio}, ${res.soporte_tecnico}, ${res.tp_tecnico})" style="font-size:0.7rem; background:#10b981; color:#fff; padding:3px 6px;">Llevar a Calculadora</button>
+                            <div style="display:flex; gap:6px; margin-top:8px;">
+                                <button onclick="agregarActivo('${res.symbol}', '${res.mercado_origen}')" style="flex:1; font-size:0.68rem; padding:4px;">+ Seguir</button>
+                                <button onclick="usarParaOperar('${res.symbol}', ${res.precio}, ${res.soporte_tecnico}, ${res.tp_tecnico})" style="flex:1; font-size:0.68rem; background:#10b981; color:#fff; padding:4px;">💼 Operar</button>
+                                <a href="${tv}" target="_blank" class="tv-btn" style="flex:1; padding:4px;">📈 TV</a>
+                                <button onclick="mostrarModal('${res.symbol}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️</button>
                             </div>
-                        </div>
-                    `).join('');
+                        </div>`;
+                    }).join('');
                 } catch(e) { divRes.innerHTML = `<span style="color:#f87171; font-size:0.85rem;">Error al simular.</span>`; }
             }
 
@@ -874,6 +898,8 @@ def dashboard():
                     currentTz = data.timezone;
                     targetTimestampGlobal = data.target_ts;
                     prefixCuentaGlobal = data.prefix_cuenta;
+
+                    document.getElementById('titulo-escaner').innerText = `🤖 Escáner Dinámico (${mercadoEnUso})`;
 
                     ['NY', 'LONDRES', 'ASIA'].forEach(m => {
                         const btn = document.getElementById(`btn-mercado-${m}`);
@@ -950,12 +976,7 @@ def dashboard():
                         if(modoLista) {
                             return `<div class="card"><div class="card-header" style="margin-bottom:0; width:170px;"><span class="ticker"><span class="flag-badge">${i.bandera}</span> ${ticker}</span></div><div class="price" style="width:75px;">$${i.precio}</div><div class="${clE}" style="width:160px;" onclick="mostrarExplicacionEstado('${i.estado_entrada}')">${i.estado_entrada} 🔍</div><div class="sparkline-container" style="width:80px; height:25px; margin-top:0;"><svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none"><polyline fill="none" stroke="${i.sparkline_color}" stroke-width="2" points="${i.sparkline}" /></svg></div><div class="list-actions-bar"><button onclick="usarParaOperar('${ticker}', ${i.precio}, ${i.soporte_tecnico}, ${i.tp_tecnico})" style="font-size:0.68rem; background:#10b981; color:#fff; padding:4px 6px;">💼 Op</button><a href="${tv}" target="_blank" class="tv-btn">📈 TV</a><button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️</button><button class="btn-remove" onclick="eliminarActivo('${ticker}')">✕</button></div></div>`;
                         } else {
-                            return `<div class="card"><div class="card-top-toolbar"><span style="font-size:0.7rem; color:#38bdf8; font-weight:bold;">Prioridad #${idx + 1}</span><button class="btn-remove" onclick="eliminarActivo('${ticker}')">✕ Eliminar</button></div><div class="card-header"><span class="ticker"><span class="flag-badge">${i.bandera}</span> ${ticker}</span><span class="badge ${i.tendencia === 'ALZA' ? 'bullish' : 'bearish'}">${i.tendencia}</span></div><div class="price">$${i.precio}</div><div class="${clE}" onclick="mostrarExplicacionEstado('${i.estado_entrada}')">${i.estado_entrada} 🔍</div><div class="sparkline-container"><svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none"><polyline fill="none" stroke="${i.sparkline_color}" stroke-width="2" points="${i.sparkline}" /></svg></div><div class="levels-box"><div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${i.soporte_tecnico}</span></div><div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${i.tp_tecnico}</span></div>
-                            <!-- RESTAURACIÓN DE LAS SMA -->
-                            <div class="stat" style="margin-top:6px; border-top:1px dashed #3a506b; padding-top:4px;"><span>📉 SMA 9:</span> <span>$${i.sma9}</span></div>
-                            <div class="stat"><span>📈 SMA 21:</span> <span>$${i.sma21}</span></div>
-                            <!-- RESTAURACIÓN DE LAS SMA -->
-                            <div class="stat" style="margin-top:6px; border-top:1px dashed #3a506b; padding-top:4px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${i.rsi >= 70 ? '#ef4444' : (i.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${i.rsi}</span></div><div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${i.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${i.tendencia_macro}</span></div></div><div style="display:flex; gap:6px; margin-top:8px;"><button onclick="usarParaOperar('${ticker}', ${i.precio}, ${i.soporte_tecnico}, ${i.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button><a href="${tv}" target="_blank" class="tv-btn" style="flex:1;">📈 TV</a><button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.72rem; padding:4px 6px;">ℹ️ Info</button></div></div>`;
+                            return `<div class="card"><div class="card-top-toolbar"><span style="font-size:0.7rem; color:#38bdf8; font-weight:bold;">Prioridad #${idx + 1}</span><button class="btn-remove" onclick="eliminarActivo('${ticker}')">✕ Eliminar</button></div><div class="card-header"><span class="ticker"><span class="flag-badge">${i.bandera}</span> ${ticker}</span><span class="badge ${i.tendencia === 'ALZA' ? 'bullish' : 'bearish'}">${i.tendencia}</span></div><div class="price">$${i.precio}</div><div class="${clE}" onclick="mostrarExplicacionEstado('${i.estado_entrada}')">${i.estado_entrada} 🔍</div><div class="sparkline-container"><svg width="100%" height="35" viewBox="0 0 100 35" preserveAspectRatio="none"><polyline fill="none" stroke="${i.sparkline_color}" stroke-width="2" points="${i.sparkline}" /></svg></div><div class="levels-box"><div class="stat"><span>🛡️ Soporte (SL):</span> <span class="sl-text">$${i.soporte_tecnico}</span></div><div class="stat"><span>🎯 TP Técnico:</span> <span class="tp-text">$${i.tp_tecnico}</span></div><div class="stat" style="margin-top:6px; border-top:1px dashed #3a506b; padding-top:4px;"><span>📉 SMA 9:</span> <span>$${i.sma9}</span></div><div class="stat"><span>📈 SMA 21:</span> <span>$${i.sma21}</span></div><div class="stat" style="margin-top:6px; border-top:1px dashed #3a506b; padding-top:4px;"><span>📊 RSI (14):</span> <span style="font-weight:bold; color:${i.rsi >= 70 ? '#ef4444' : (i.rsi <= 30 ? '#c084fc' : '#38bdf8')}">${i.rsi}</span></div><div class="stat"><span>🌊 Macro (1D):</span> <span style="font-weight:bold; color:${i.tendencia_macro === 'ALZA' ? '#4ade80' : '#f87171'}">${i.tendencia_macro}</span></div></div><div style="display:flex; gap:6px; margin-top:8px;"><button onclick="usarParaOperar('${ticker}', ${i.precio}, ${i.soporte_tecnico}, ${i.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button><a href="${tv}" target="_blank" class="tv-btn" style="flex:1;">📈 TV</a><button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.72rem; padding:4px 6px;">ℹ️ Info</button></div></div>`;
                         }
                     }).join('');
                 } else {
