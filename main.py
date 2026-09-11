@@ -138,7 +138,7 @@ CATALOGO_TICKERS = {
 }
 
 POOLS_ESCANER = {
-    "NY": ["AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "NFLX", "AMD", "SPY", "QQQ"],
+    "NY": ["AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "NFLX", "AMD", "SPY", "QQQ", "PLTR", "COIN", "MARA", "SOFI"],
     "LONDRES": ["SHEL.L", "AZN.L", "ULVR.L", "HSBA.L", "BP.L", "GSK.L", "RIO.L", "BARC.L", "LLOY.L", "VOD.L"],
     "ASIA": ["7203.T", "6758.T", "7974.T", "9984.T", "8306.T", "6861.T", "6501.T", "4063.T", "6902.T", "8035.T"]
 }
@@ -156,7 +156,7 @@ class MercadoModel(BaseModel): mercado: str
 class PosicionModel(BaseModel):
   ticker: str; precio_compra: float; sl_usuario: float; tp_usuario: float; riesgo_usd: float; timeframe: str
 class ReordenarModel(BaseModel): activos: list
-class SimuladorModel(BaseModel): capital: float; fracciones: bool; sin_materias: bool
+class SimuladorModel(BaseModel): capital: float; fracciones: bool; sin_materias: bool; movimientos_bruscos: bool
 
 def obtener_info_horario():
   m_act = APP_CONFIG["mercado_actual"]
@@ -225,9 +225,14 @@ def procesar_ticker(symbol, tf_local, mercado):
       df["RSI"] = 100 - (100 / (1 + (gain / loss)))
       rsi_val = round(float(df["RSI"].iloc[-1]), 1) if not pd.isna(df["RSI"].iloc[-1]) else 50.0
       vol_val = True
+      vol_ratio = 1.0
       if "Volume" in df.columns:
         df["VSMA"] = df["Volume"].rolling(20).mean()
-        if float(df["VSMA"].iloc[-1]) > 0: vol_val = float(df["Volume"].iloc[-1]) >= (1.5 * float(df["VSMA"].iloc[-1]))
+        v_sma = float(df["VSMA"].iloc[-1])
+        v_act = float(df["Volume"].iloc[-1])
+        if v_sma > 0: 
+          vol_ratio = round(v_act / v_sma, 1)
+          vol_val = v_act >= (1.5 * v_sma)
 
       ult = df.iloc[-1]
       ant = df.iloc[-2]
@@ -238,6 +243,8 @@ def procesar_ticker(symbol, tf_local, mercado):
       sma21 = round(float(ult["SMA_21"]), 2)
       tendencia = "ALZA" if sma9 > sma21 else "BAJA"
       hora = datetime.now().strftime("%H:%M:%S")
+
+      var_porc = round(((precio - float(ult["Open"])) / float(ult["Open"])) * 100, 2)
 
       max_t = float(df["High"].tail(20).max())
       min_t = float(df["Low"].tail(20).min())
@@ -250,7 +257,9 @@ def procesar_ticker(symbol, tf_local, mercado):
       tp_t = round(precio + (riesgo * 2), 2) if riesgo > 0 else round(precio * 1.02, 2)
       r_m_s = " | ⚠️ Macro BAJA" if tendencia_macro == "BAJA" else ""
 
-      if precio > resistencia and tendencia == "ALZA":
+      if vol_ratio >= 2.5:
+        est = f"⚡ MOVIMIENTO BRUSCO (Vol x{vol_ratio})"
+      elif precio > resistencia and tendencia == "ALZA":
         if rsi_val >= 70: est = f"⚠️ SOBRECOMPRADO (RSI {rsi_val})"
         elif not vol_val: est = f"⚠️ FALSO QUIEBRE (RSI {rsi_val})"
         else: est = f"🟢 BUENA ENTRADA (Quiebre){r_m_s}"
@@ -264,7 +273,7 @@ def procesar_ticker(symbol, tf_local, mercado):
       rp = Map - mp if Map != mp else 1
       spark = " ".join([f"{round((i/14)*100,1)},{round(35-((v-mp)/rp)*30,1)}" for i, v in enumerate(upre)])
 
-      meta = CATALOGO_TICKERS.get(symbol, {"nombre": symbol, "desc": "Activo global.", "estrategia": "Análisis técnico estándar."})
+      meta = CATALOGO_TICKERS.get(symbol, {"nombre": symbol, "desc": "Activo global de alta liquidez.", "estrategia": "Scalping / Momento técnico."})
 
       res = {
           "symbol": symbol, "nombre": meta["nombre"], "descripcion": meta["desc"],
@@ -272,6 +281,7 @@ def procesar_ticker(symbol, tf_local, mercado):
           "precio": precio, "resistencia": resistencia, "soporte_tecnico": soporte,
           "tp_tecnico": tp_t, "sma9": sma9, "sma21": sma21, "rsi": rsi_val,
           "tendencia": tendencia, "tendencia_macro": tendencia_macro, "vol_valido": vol_val,
+          "vol_ratio": vol_ratio, "var_porc": var_porc,
           "estado_entrada": est, "atr": atr_medio, "fib_50": fib5, "fib_618": fib6,
           "en_zona_fib": en_fib, "hora": hora, "sparkline": spark,
           "sparkline_color": "#4ade80" if tendencia == "ALZA" else "#f87171",
@@ -290,8 +300,8 @@ def escaneo_autonomo():
       pool = POOLS_ESCANER.get(m_act, POOLS_ESCANER["NY"])
       with ThreadPoolExecutor(max_workers=5) as ex:
         res = [r for r in ex.map(lambda s: procesar_ticker(s, timeframe_actual, m_act), pool) if r]
-      ops = [r for r in res if "BUENA ENTRADA" in r["estado_entrada"] or "PREPARANDO" in r["estado_entrada"] or "REBOTE" in r["estado_entrada"]]
-      ops.sort(key=lambda x: 0 if "BUENA ENTRADA" in x["estado_entrada"] else (1 if "REBOTE" in x["estado_entrada"] else 2))
+      ops = [r for r in res if "BUENA ENTRADA" in r["estado_entrada"] or "PREPARANDO" in r["estado_entrada"] or "REBOTE" in r["estado_entrada"] or "MOVIMIENTO" in r["estado_entrada"]]
+      ops.sort(key=lambda x: 0 if "MOVIMIENTO" in x["estado_entrada"] else (1 if "BUENA ENTRADA" in x["estado_entrada"] else 2))
       recomendaciones_escaner = [{"ticker": r["symbol"], "precio": r["precio"], "tp": r["tp_tecnico"], "sl": r["soporte_tecnico"], "rsi": r["rsi"], "estado": r["estado_entrada"], "bandera": r["bandera"]} for r in ops[:5]]
     except: pass
     time.sleep(120)
@@ -307,7 +317,7 @@ def procesar_lote_mercado():
     if r:
       sym = r["symbol"]
       nuevo_estado[sym] = r
-      if "BUENA ENTRADA" in r["estado_entrada"] or "REBOTE" in r["estado_entrada"]:
+      if "BUENA ENTRADA" in r["estado_entrada"] or "REBOTE" in r["estado_entrada"] or "MOVIMIENTO" in r["estado_entrada"]:
         _registrar_alerta(sym, f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}", r["precio"], r["hora"], r["soporte_tecnico"], r["tp_tecnico"], m_act)
       _evaluar_cartera(sym, r["precio"], r["sma9"], r["sma21"], r["soporte_tecnico"], r["atr"], r["hora"], m_act)
   estado_mercado = nuevo_estado
@@ -476,7 +486,12 @@ def endpoint_simulador(item: SimuladorModel):
     res = procesar_ticker(sym, timeframe_actual, m)
     if not res: return None
     st = res["estado_entrada"]
-    if not ("BUENA ENTRADA" in st or "PREPARANDO" in st or "REBOTE" in st): return None
+    
+    # Filtro dinámico: Si pide movimientos bruscos, busca alta volatilidad/volumen. Si no, setups técnicos estándar.
+    if item.movimientos_bruscos:
+      if not "MOVIMIENTO BRUSCO" in st: return None
+    else:
+      if not ("BUENA ENTRADA" in st or "PREPARANDO" in st or "REBOTE" in st): return None
     
     precio = res["precio"]
     lote = 100 if m == "ASIA" else 1
@@ -507,7 +522,7 @@ def endpoint_simulador(item: SimuladorModel):
     
   validos = [r for r in r_list if r]
   validos.sort(key=lambda x: x["sim_rat"], reverse=True)
-  return {"resultados": validos[:5]}
+  return {"resultados": validos[:6]}
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -564,6 +579,7 @@ def dashboard():
             .entrada-wait { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             .entrada-warn { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             .entrada-rebote { background: rgba(168, 85, 247, 0.25); color: #c084fc; border: 1px solid #a855f7; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
+            .entrada-vol { background: rgba(56, 189, 248, 0.25); color: #38bdf8; border: 1px solid #38bdf8; font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; display: inline-block; margin-bottom: 8px; cursor: pointer; }
             
             .stat { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.82rem; color: #cbd5e1; }
             .levels-box { background: #0b132b; padding: 8px; border-radius: 6px; margin-top: 6px; border: 1px solid #3a506b; }
@@ -659,16 +675,17 @@ def dashboard():
             
             <div class="sidebar-prioritario">
                 
-                <!-- SIMULADOR ESTRICTO -->
+                <!-- SIMULADOR ESTRICTO CON RADAR DE VOLATILIDAD -->
                 <div class="feed-panel" style="border-color:#10b981;">
-                    <div class="feed-title" style="color:#10b981;">🧪 Simulador Inversión Estricto</div>
-                    <p style="font-size:0.8rem; color:#cbd5e1; margin-top:0;">Filtra y calcula operaciones matemáticas en 3 mercados según tu liquidez real.</p>
+                    <div class="feed-title" style="color:#10b981;">🧪 Simulador Inversión & Radar</div>
+                    <p style="font-size:0.8rem; color:#cbd5e1; margin-top:0;">Filtra oportunidades en 3 mercados adaptadas a tu capital y permisos de IBKR.</p>
                     <div style="display:flex; gap:6px; margin-bottom:8px;">
                         <input type="number" id="sim-capital" placeholder="Capital Ej: 300" style="width:100%; border-color:#10b981;">
                         <button onclick="ejecutarSimulador()" style="background:#10b981; color:#fff;">Simular</button>
                     </div>
-                    <label style="font-size:0.8rem; color:#cbd5e1; display:block; margin-bottom:4px;"><input type="checkbox" id="sim-nomat" checked> Excluir Materias Primas</label>
-                    <label style="font-size:0.8rem; color:#cbd5e1; display:block;"><input type="checkbox" id="sim-frac"> Permitir fracciones en IBKR</label>
+                    <label style="font-size:0.80rem; color:#cbd5e1; display:block; margin-bottom:4px;"><input type="checkbox" id="sim-nomat" checked> Excluir Materias Primas</label>
+                    <label style="font-size:0.80rem; color:#cbd5e1; display:block; margin-bottom:4px;"><input type="checkbox" id="sim-frac"> Permitir fracciones en IBKR</label>
+                    <label style="font-size:0.80rem; color:#38bdf8; display:block; font-weight:bold;"><input type="checkbox" id="sim-bruscos"> ⚡ Solo Movimientos Bruscos (Alto Volúmen / Scalping)</label>
                     <div id="sim-resultados" style="margin-top:12px;"></div>
                 </div>
 
@@ -686,7 +703,7 @@ def dashboard():
                     <div class="feed-title">📖 Manual PRO Integral</div>
                     <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:8px; border-radius:4px; cursor:pointer; font-weight:bold;">📚 Desplegar / Ocultar Guía de Uso</button>
                     <div id="box-manual" class="manual-box" style="display:none;">
-                        <details><summary>🎯 Estrategias y Estados</summary><ul><li><b>🟢 Buena Entrada:</b> Superó resistencia con volumen real. Ideal entrar.</li><li><b>⏳ Preparando:</b> Retrocediendo a soporte sano (Fibonacci). Esperar rebote.</li><li><b>💥 Rebote en Zona:</b> Caída fuerte a piso técnico extremo. Riesgoso pero rentable con SL ajustado.</li><li><b>⚠️ Falso Quiebre:</b> Ruptura sin volumen. Evitar trampa.</li></ul></details>
+                        <details><summary>🎯 Estrategias y Estados</summary><ul><li><b>🟢 Buena Entrada:</b> Superó resistencia con volumen real. Ideal entrar.</li><li><b>⚡ Movimiento Brusco:</b> Volumen anómalo (x2.5). Ideal para scalping / entradas y salidas rápidas.</li><li><b>⏳ Preparando:</b> Retrocediendo a soporte sano (Fibonacci). Esperar rebote.</li><li><b>💥 Rebote en Zona:</b> Caída fuerte a piso técnico extremo. Riesgoso pero rentable con SL ajustado.</li></ul></details>
                         <details><summary>📊 Indicadores Utilizados</summary><ul><li><b>SMA 9 / 21:</b> Medias Móviles. 9 > 21 es alcista.</li><li><b>RSI (14):</b> Mide agotamiento. >70 Sobrecomprado, <30 Sobrevendido.</li><li><b>Macro (1D):</b> Filtro de seguridad del gráfico diario.</li></ul></details>
                         <details><summary>💼 Gestión (SL Audit)</summary><p>Audita tu SL en vivo:</p><ul><li><b>SL Muy Corto / Lejos:</b> Según volatilidad (ATR).</li><li><b>Sube SL a Soporte (Trailing):</b> Si ganas +3%, asegura.</li></ul></details>
                     </div>
@@ -727,12 +744,11 @@ def dashboard():
             }, 1000);
 
             const explicacionesEstados = {
+                "MOVIMIENTO BRUSCO": { titulo: "⚡ Movimiento Brusco", porque: "Volumen anómalo 2.5x superior a su media con aceleración de precio.", resultado: "Entrada masiva de capital institucional.", queHacer: "Operación rápida (Scalping) con SL ajustado." },
                 "BUENA ENTRADA": { titulo: "🟢 Buena Entrada", porque: "Superó resistencia con volumen.", resultado: "Compradores al mando.", queHacer: "Operar." },
                 "PREPARANDO": { titulo: "⏳ Preparando", porque: "Retrocediendo a zona de soporte sano.", resultado: "Descanso técnico.", queHacer: "Vigilar rebote." },
                 "REBOTE EN ZONA": { titulo: "💥 Rebote en Zona", porque: "Tocó piso técnico en sobreventa.", resultado: "Posible giro rápido.", queHacer: "Operar agresivo con SL." },
                 "FALSO QUIEBRE": { titulo: "⚠️ Falso Quiebre", porque: "Rompió sin volumen.", resultado: "Trampa.", queHacer: "No operar." },
-                "SOBRECOMPRADO": { titulo: "⚠️ Sobrecomprado", porque: "Subió vertical.", resultado: "Riesgo de caída.", queHacer: "No entrar." },
-                "SOBREVENDIDO": { titulo: "📉 Sobrevendido", porque: "Caída sin frenos.", resultado: "Sin suelo aún.", queHacer: "Esperar confirmación." },
                 "ESPERAR": { titulo: "⏳ Esperar", porque: "Lateralidad.", resultado: "Ruido.", queHacer: "Buscar otra cosa." }
             };
 
@@ -835,26 +851,28 @@ def dashboard():
                 const cap = parseFloat(document.getElementById('sim-capital').value);
                 if (isNaN(cap) || cap <= 0) { alert("Ingresa un capital válido."); return; }
                 const divRes = document.getElementById('sim-resultados');
-                divRes.innerHTML = `<span style="color:#facc15; font-size:0.85rem;">Analizando matemáticamente 3 mercados...</span>`;
+                divRes.innerHTML = `<span style="color:#facc15; font-size:0.85rem;">Escaneando mercados en busca de movimientos y volumen...</span>`;
                 
                 const payload = {
                     capital: cap,
                     fracciones: document.getElementById('sim-frac').checked,
-                    sin_materias: document.getElementById('sim-nomat').checked
+                    sin_materias: document.getElementById('sim-nomat').checked,
+                    movimientos_bruscos: document.getElementById('sim-bruscos').checked
                 };
 
                 try {
                     const r = await fetch('/api/simulador', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
                     const d = await r.json();
                     if (!d.resultados || d.resultados.length === 0) {
-                        divRes.innerHTML = `<span style="color:#f87171; font-size:0.85rem;">Ningún activo válido para tu capital y reglas.</span>`;
+                        divRes.innerHTML = `<span style="color:#f87171; font-size:0.85rem;">Ningún activo coincide con el filtro de alta volatilidad y tu capital.</span>`;
                         return;
                     }
 
                     divRes.innerHTML = d.resultados.map(res => {
                         const tv = formatearLinkTV(res.symbol, res.mercado_origen);
                         let clE = 'entrada-wait';
-                        if (res.estado_entrada.includes("BUENA ENTRADA")) clE = 'entrada-ok';
+                        if (res.estado_entrada.includes("MOVIMIENTO")) clE = 'entrada-vol';
+                        else if (res.estado_entrada.includes("BUENA ENTRADA")) clE = 'entrada-ok';
                         else if (res.estado_entrada.includes("PREPARANDO")) clE = 'entrada-prep';
                         else if (res.estado_entrada.includes("REBOTE")) clE = 'entrada-rebote';
 
@@ -862,14 +880,14 @@ def dashboard():
                         <div class="sim-card">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                                 <span style="font-weight:bold; font-size:1.05rem;"><span class="flag-badge">${res.bandera}</span> ${res.symbol}</span>
-                                <span class="${clE}" style="margin-bottom:0; font-size:0.7rem; padding:2px 6px;" onclick="mostrarExplicacionEstado('${res.estado_entrada}')">${res.estado_entrada} 🔍</span>
+                                <span class="${clE}" style="margin-bottom:0; font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="mostrarExplicacionEstado('${res.estado_entrada}')">${res.estado_entrada} 🔍</span>
                             </div>
                             <div class="sparkline-container" style="margin:6px 0;">
                                 <svg width="100%" height="25" viewBox="0 0 100 35" preserveAspectRatio="none">
                                     <polyline fill="none" stroke="${res.sparkline_color}" stroke-width="2" points="${res.sparkline}" />
                                 </svg>
                             </div>
-                            <div class="sim-row"><span>Precio:</span> <b>$${res.precio}</b></div>
+                            <div class="sim-row"><span>Precio:</span> <b>$${res.precio}</b> (Var: <span style="color:${res.var_porc>=0?'#4ade80':'#f87171'}">${res.var_porc>=0?'+':''}${res.var_porc}%</span>)</div>
                             <div class="sim-row" style="color:#38bdf8;"><span>Cantidad:</span> <b>${res.sim_acc} un.</b></div>
                             <div class="sim-row"><span>Inversión Real:</span> <b>$${res.sim_inv}</b> (Sobra: $${res.sim_sob})</div>
                             <hr style="border:0; border-top:1px solid #3a506b; margin:6px 0;">
@@ -910,8 +928,8 @@ def dashboard():
                         ordenActivosGlobal.sort((a, b) => {
                             const sa = mercadoGlobalData[a]?.estado_entrada || "";
                             const sb = mercadoGlobalData[b]?.estado_entrada || "";
-                            const pa = (sa.includes("BUENA")||sa.includes("REBOTE"))?1 : (sa.includes("PREPARANDO")||sa.includes("SOBRE")||sa.includes("FALSO"))?2 : 3;
-                            const pb = (sb.includes("BUENA")||sb.includes("REBOTE"))?1 : (sb.includes("PREPARANDO")||sb.includes("SOBRE")||sb.includes("FALSO"))?2 : 3;
+                            const pa = sa.includes("MOVIMIENTO")?0 : (sa.includes("BUENA")||sa.includes("REBOTE"))?1 : 2;
+                            const pb = sb.includes("MOVIMIENTO")?0 : (sb.includes("BUENA")||sb.includes("REBOTE"))?1 : 2;
                             return pa - pb;
                         });
                     }
@@ -952,7 +970,7 @@ def dashboard():
 
                     const divSug = document.getElementById('lista-sugerencias');
                     if(data.sugerencias.length > 0) {
-                        divSug.innerHTML = data.sugerencias.map(s => `<div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;"><div style="font-weight:bold; ${s.estado.includes('REBOTE')?'color:#c084fc;':'color:#4ade80;'} font-size:0.85rem;"><span class="flag-badge">${s.bandera}</span> ${s.ticker} a $${s.precio}</div><div style="font-size:0.75rem; color:#facc15; margin: 2px 0; cursor:pointer;" onclick="mostrarExplicacionEstado('${s.estado}')">📌 <span style="text-decoration:underline;">${s.estado}</span> 🔍</div><div style="display:flex; gap:6px; margin-top:6px;"><button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button><button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Op</button><a href="${formatearLinkTV(s.ticker, mercadoEnUso)}" target="_blank" class="tv-btn">📈 TV</a></div></div>`).join('');
+                        divSug.innerHTML = data.sugerencias.map(s => `<div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;"><div style="font-weight:bold; ${s.estado.includes('MOVIMIENTO')?'color:#38bdf8;':(s.estado.includes('REBOTE')?'color:#c084fc;':'color:#4ade80;')} font-size:0.85rem;"><span class="flag-badge">${s.bandera}</span> ${s.ticker} a $${s.precio}</div><div style="font-size:0.75rem; color:#facc15; margin: 2px 0; cursor:pointer;" onclick="mostrarExplicacionEstado('${s.estado}')">📌 <span style="text-decoration:underline;">${s.estado}</span> 🔍</div><div style="display:flex; gap:6px; margin-top:6px;"><button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button><button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Op</button><a href="${formatearLinkTV(s.ticker, mercadoEnUso)}" target="_blank" class="tv-btn">📈 TV</a></div></div>`).join('');
                     } else { divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Buscando...</span>`; }
 
                     renderizarGridMercado();
@@ -966,7 +984,8 @@ def dashboard():
                         const i = mercadoGlobalData[ticker];
                         if(!i) return '';
                         let clE = 'entrada-wait';
-                        if (i.estado_entrada.includes("FALSO")) clE = 'entrada-warn';
+                        if (i.estado_entrada.includes("MOVIMIENTO")) clE = 'entrada-vol';
+                        else if (i.estado_entrada.includes("FALSO")) clE = 'entrada-warn';
                         else if (i.estado_entrada.includes("BUENA ENTRADA")) clE = 'entrada-ok';
                         else if (i.estado_entrada.includes("PREPARANDO")) clE = 'entrada-prep';
                         else if (i.estado_entrada.includes("REBOTE")) clE = 'entrada-rebote';
