@@ -52,7 +52,7 @@ app = FastAPI(title="Trading Monitor Pro")
 INTERVALO_SEGUNDOS = 60
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-# CACHÉ EN MEMORIA PARA EVITAR SATURAR LA BASE DE DATOS
+# CACHÉ EN MEMORIA CENTRALIZADA
 APP_CONFIG = {
     "mercado_actual": "NY",
     "datos": {
@@ -70,6 +70,9 @@ APP_CONFIG = {
         }
     }
 }
+
+# Historial aislado por mercado
+historial_alertas = {"NY": [], "LONDRES": [], "ASIA": []}
 
 def get_db_connection():
   if not DATABASE_URL:
@@ -128,8 +131,7 @@ def db_save_all_data():
     cursor.close()
     conn.close()
   except Exception as e:
-    print("❌ Error guardando DB:", e)
-
+    pass
 
 CATALOGO_TICKERS = {
     # Wall Street (NY)
@@ -165,7 +167,6 @@ POOLS_ESCANER = {
 
 timeframe_actual = "1h"
 estado_mercado = {}
-historial_alertas = []
 recomendaciones_escaner = []
 cache_yf = {}
 SSE_SUBSCRIBERS = []
@@ -188,7 +189,6 @@ class PosicionModel(BaseModel):
 class ReordenarModel(BaseModel):
   activos: list
 
-
 def obtener_info_horario():
   mercado_actual = APP_CONFIG["mercado_actual"]
   if mercado_actual == "LONDRES":
@@ -208,40 +208,44 @@ def obtener_info_horario():
     has_lunch = False
 
   tz = pytz.timezone(tz_str)
-  t = datetime.now(tz)
+  now = datetime.now(tz)
+  
+  # Base datetimes for today
+  m_open = now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+  m_close = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
+  
+  # Fin de semana
+  if now.weekday() >= 5:
+    days_ahead = 7 - now.weekday()
+    target = m_open + timedelta(days=days_ahead)
+    return "🔴 CERRADO (Fin de semana)", target.timestamp(), tz_str, "Abre"
 
-  if t.weekday() > 4:
-    dias_hasta_lunes = (7 - t.weekday()) % 7 or 2
-    proximo_lunes = (t + timedelta(days=dias_hasta_lunes)).replace(hour=open_h, minute=open_m, second=0, microsecond=0)
-    diff = proximo_lunes - t
-    horas, rem = divmod(int(diff.total_seconds()), 3600)
-    return f"🔴 {nombre_mercado} CERRADO (Fin de semana)", f"Abre en {horas//24}d {horas%24}h {rem//60}m {rem%60}s", tz_str
-
-  m_open = t.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
-  m_close = t.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
-  lunch_start = t.replace(hour=11, minute=30, second=0, microsecond=0) if has_lunch else None
-  lunch_end = t.replace(hour=12, minute=30, second=0, microsecond=0) if has_lunch else None
-
-  if t < m_open:
-    h, r = divmod(int((m_open - t).total_seconds()), 3600)
-    return f"🔴 {nombre_mercado} CERRADO (Pre-apertura)", f"Abre en {h}h {r//60}m {r%60}s", tz_str
-  elif t > m_close:
-    h, s = divmod(int(((m_open + timedelta(days=1)) - t).total_seconds()), 60)
-    return f"🔴 {nombre_mercado} CERRADO", f"Abre mañana en {h}h {s}m", tz_str
-  elif has_lunch and lunch_start <= t < lunch_end:
-    m, s = divmod(int((lunch_end - t).total_seconds()), 60)
-    return f"☕ {nombre_mercado} RECESO (Almuerzo)", f"Vuelve en {m}m {s}s", tz_str
-  else:
-    h, r = divmod(int((m_close - t).total_seconds()), 3600)
-    return f"🟢 {nombre_mercado} ABIERTO", f"Cierra en {h}h {r//60}m {r%60}s", tz_str
-
+  if now < m_open:
+    return "🔴 CERRADO (Pre-apertura)", m_open.timestamp(), tz_str, "Abre"
+  elif now >= m_close:
+    days_ahead = 3 if now.weekday() == 4 else 1
+    target = m_open + timedelta(days=days_ahead)
+    txt_prefix = "Abre el lunes" if now.weekday() == 4 else "Abre mañana"
+    return "🔴 CERRADO", target.timestamp(), tz_str, txt_prefix
+  elif has_lunch:
+    lunch_start = now.replace(hour=11, minute=30, second=0, microsecond=0)
+    lunch_end = now.replace(hour=12, minute=30, second=0, microsecond=0)
+    if lunch_start <= now < lunch_end:
+      return "☕ RECESO (Almuerzo)", lunch_end.timestamp(), tz_str, "Vuelve"
+  
+  return "🟢 ABIERTO", m_close.timestamp(), tz_str, "Cierra"
 
 def obtener_config_tf(tf: str):
   if tf == "4h": return "60d", "60m"
   if tf == "1d": return "6mo", "1d"
   return "1mo", "1h"
 
-def procesar_ticker(symbol, tf_local):
+def get_bandera(mercado):
+    if mercado == "NY": return "🇺🇸 NY"
+    if mercado == "LONDRES": return "🇬🇧 LSE"
+    return "🇯🇵 TSE"
+
+def procesar_ticker(symbol, tf_local, mercado):
   ahora = time.time()
   if symbol in cache_yf and cache_yf[symbol]["tf"] == tf_local and (ahora - cache_yf[symbol]["time"] < 35):
     return cache_yf[symbol]["data"]
@@ -253,19 +257,17 @@ def procesar_ticker(symbol, tf_local):
       try:
         df_macro = yf.download(tickers=symbol, period="6mo", interval="1d", progress=False)
         if not df_macro.empty:
-          if hasattr(df_macro.columns, "nlevels") and df_macro.columns.nlevels > 1:
-            df_macro.columns = df_macro.columns.get_level_values(0)
-          df_macro["SMA_9"] = df_macro["Close"].rolling(9).mean()
-          df_macro["SMA_21"] = df_macro["Close"].rolling(21).mean()
+          if hasattr(df_macro.columns, "nlevels") and df_macro.columns.nlevels > 1: df_macro.columns = df_macro.columns.get_level_values(0)
           u = df_macro.iloc[-1]
-          if not pd.isna(u["SMA_9"]) and not pd.isna(u["SMA_21"]):
-            tendencia_macro = "ALZA" if u["SMA_9"] > u["SMA_21"] else "BAJA"
+          sma9_m = df_macro["Close"].rolling(9).mean().iloc[-1]
+          sma21_m = df_macro["Close"].rolling(21).mean().iloc[-1]
+          if not pd.isna(sma9_m) and not pd.isna(sma21_m):
+            tendencia_macro = "ALZA" if sma9_m > sma21_m else "BAJA"
       except: pass
 
     df = yf.download(tickers=symbol, period=periodo, interval=intervalo, progress=False)
     if df.empty: return None
-    if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-      df.columns = df.columns.get_level_values(0)
+    if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1: df.columns = df.columns.get_level_values(0)
 
     if tf_local == "4h" and len(df) >= 4:
       df = df.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
@@ -343,6 +345,7 @@ def procesar_ticker(symbol, tf_local):
           "estado_entrada": estado_entrada, "atr": atr_medio, "fib_50": fib_500, "fib_618": fib_618,
           "en_zona_fib": en_zona_fib, "hora": hora, "sparkline": sparkline,
           "sparkline_color": "#4ade80" if tendencia == "ALZA" else "#f87171",
+          "bandera": get_bandera(mercado)
       }
       cache_yf[symbol] = {"tf": tf_local, "time": ahora, "data": resultado}
       return resultado
@@ -353,18 +356,18 @@ def escaneo_autonomo():
   global recomendaciones_escaner
   while True:
     try:
-      pool = POOLS_ESCANER.get(APP_CONFIG["mercado_actual"], POOLS_ESCANER["NY"])
+      m_act = APP_CONFIG["mercado_actual"]
+      pool = POOLS_ESCANER.get(m_act, POOLS_ESCANER["NY"])
       with ThreadPoolExecutor(max_workers=5) as executor:
-        resultados = [r for r in executor.map(lambda s: procesar_ticker(s, timeframe_actual), pool) if r]
+        resultados = [r for r in executor.map(lambda s: procesar_ticker(s, timeframe_actual, m_act), pool) if r]
       
       ops = [r for r in resultados if "BUENA ENTRADA" in r["estado_entrada"] or "PREPARANDO" in r["estado_entrada"] or "REBOTE" in r["estado_entrada"]]
       ops.sort(key=lambda x: 0 if "BUENA ENTRADA" in x["estado_entrada"] else (1 if "REBOTE" in x["estado_entrada"] else 2))
       
-      recomendaciones_escaner = [{"ticker": r["symbol"], "precio": r["precio"], "tp": r["tp_tecnico"], "sl": r["soporte_tecnico"], "rsi": r["rsi"], "estado": r["estado_entrada"]} for r in ops[:5]]
+      recomendaciones_escaner = [{"ticker": r["symbol"], "precio": r["precio"], "tp": r["tp_tecnico"], "sl": r["soporte_tecnico"], "rsi": r["rsi"], "estado": r["estado_entrada"], "bandera": r["bandera"]} for r in ops[:5]]
     except Exception as e:
-      print("❌ Error en escáner dinámico:", e)
+      pass
     time.sleep(120)
-
 
 def procesar_lote_mercado():
   global estado_mercado
@@ -372,7 +375,7 @@ def procesar_lote_mercado():
   lista = APP_CONFIG["datos"][m_act]["activos"]
   
   with ThreadPoolExecutor(max_workers=5) as executor:
-    resultados = executor.map(lambda s: procesar_ticker(s, timeframe_actual), lista)
+    resultados = list(executor.map(lambda s: procesar_ticker(s, timeframe_actual, m_act), lista))
 
   nuevo_estado = {}
   for r in resultados:
@@ -380,12 +383,11 @@ def procesar_lote_mercado():
       sym = r["symbol"]
       nuevo_estado[sym] = r
       if "BUENA ENTRADA" in r["estado_entrada"] or "REBOTE EN ZONA" in r["estado_entrada"]:
-        _registrar_alerta(sym, f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}", r["precio"], r["hora"], r["soporte_tecnico"], r["tp_tecnico"])
-      _evaluar_cartera(sym, r["precio"], r["sma9"], r["sma21"], r["soporte_tecnico"], r["atr"], r["hora"])
+        _registrar_alerta(sym, f"🟢 ALERTA ({r['estado_entrada']}) | TP: ${r['tp_tecnico']}", r["precio"], r["hora"], r["soporte_tecnico"], r["tp_tecnico"], m_act)
+      _evaluar_cartera(sym, r["precio"], r["sma9"], r["sma21"], r["soporte_tecnico"], r["atr"], r["hora"], m_act)
   
   estado_mercado = nuevo_estado
   notificar_suscriptores()
-
 
 def analizar_mercado():
   while True:
@@ -395,8 +397,8 @@ def analizar_mercado():
 def _forzar_actualizacion():
   procesar_lote_mercado()
 
-def _evaluar_cartera(symbol, precio_actual, sma9, sma21, soporte_tecnico, atr, hora):
-  cartera = APP_CONFIG["datos"][APP_CONFIG["mercado_actual"]]["cartera"]
+def _evaluar_cartera(symbol, precio_actual, sma9, sma21, soporte_tecnico, atr, hora, mercado):
+  cartera = APP_CONFIG["datos"][mercado]["cartera"]
   modificado = False
   for pos in cartera:
     if pos["ticker"] == symbol:
@@ -407,7 +409,7 @@ def _evaluar_cartera(symbol, precio_actual, sma9, sma21, soporte_tecnico, atr, h
 
       if sma9 < sma21:
         estado_pos = "⚠️ CRUCE BAJISTA"
-        _registrar_alerta(symbol, "⚠️ CARTERA: Pérdida de impulso.", precio_actual, hora, soporte_tecnico, pos["tp_usuario"])
+        _registrar_alerta(symbol, "⚠️ CARTERA: Pérdida de impulso.", precio_actual, hora, soporte_tecnico, pos["tp_usuario"], mercado)
       elif p_ganancia >= 2.0:
         estado_pos = "🟢 EN GANANCIA"
 
@@ -420,16 +422,17 @@ def _evaluar_cartera(symbol, precio_actual, sma9, sma21, soporte_tecnico, atr, h
       elif distancia_sl < (atr * 0.5): mensaje_sl = "⚠️ SL MUY CORTO"
       elif sl_user < (soporte_tecnico * 0.95): mensaje_sl = "⚠️ SL MUY LEJOS"
 
-      pos.update({"precio_actual": precio_actual, "pnl_porcentaje": round(p_ganancia, 2), "estado": estado_pos, "analisis_sl": mensaje_sl})
+      pos.update({"precio_actual": precio_actual, "pnl_porcentaje": round(p_ganancia, 2), "estado": estado_pos, "analisis_sl": mensaje_sl, "bandera": get_bandera(mercado)})
       modificado = True
 
   if modificado: db_save_all_data()
 
-def _registrar_alerta(symbol, evento, precio, hora, sl=0, tp=0):
+def _registrar_alerta(symbol, evento, precio, hora, sl, tp, mercado):
   global historial_alertas
-  if not historial_alertas or historial_alertas[0]["symbol"] != symbol or historial_alertas[0]["evento"] != evento:
-    historial_alertas.insert(0, {"symbol": symbol, "evento": evento, "precio": precio, "hora": hora, "sl": sl, "tp": tp})
-    historial_alertas = historial_alertas[:20]
+  lista = historial_alertas[mercado]
+  if not lista or lista[0]["symbol"] != symbol or lista[0]["evento"] != evento:
+    lista.insert(0, {"symbol": symbol, "evento": evento, "precio": precio, "hora": hora, "sl": sl, "tp": tp, "bandera": get_bandera(mercado)})
+    historial_alertas[mercado] = lista[:20]
 
 threading.Thread(target=analizar_mercado, daemon=True).start()
 threading.Thread(target=escaneo_autonomo, daemon=True).start()
@@ -443,15 +446,16 @@ def notificar_suscriptores():
 def obtener_datos():
   m_act = APP_CONFIG["mercado_actual"]
   info = APP_CONFIG["datos"].get(m_act, {"activos": [], "cartera": []})
-  estado, cuenta_reg, tz_name = obtener_info_horario()
+  estado, target_ts, tz_name, txt_prefix = obtener_info_horario()
   return {
       "mercado": estado_mercado,
-      "alertas": historial_alertas,
+      "alertas": historial_alertas[m_act],
       "cartera": info.get("cartera", []),
       "timeframe": timeframe_actual,
       "mercado_actual": m_act,
-      "horario": estado,
-      "cuenta_regresiva": cuenta_reg,
+      "estado_horario": estado,
+      "target_ts": target_ts,
+      "prefix_cuenta": txt_prefix,
       "timezone": tz_name,
       "sugerencias": recomendaciones_escaner,
       "catalogo": CATALOGO_TICKERS,
@@ -531,7 +535,8 @@ def agregar_cartera(item: PosicionModel):
       "ticker": ticker, "precio_compra": item.precio_compra, "sl_usuario": item.sl_usuario,
       "tp_usuario": item.tp_usuario, "riesgo_usd": item.riesgo_usd, "acciones": acciones,
       "inversion_total": round(acciones * item.precio_compra, 2), "timeframe": item.timeframe,
-      "precio_actual": item.precio_compra, "pnl_porcentaje": 0.0, "estado": "🔵 MANTENER", "analisis_sl": "Analizando..."
+      "precio_actual": item.precio_compra, "pnl_porcentaje": 0.0, "estado": "🔵 MANTENER", "analisis_sl": "Analizando...",
+      "bandera": get_bandera(m_act)
   })
   APP_CONFIG["datos"][m_act]["cartera"] = cartera
   db_save_all_data()
@@ -565,6 +570,7 @@ def cambiar_mercado(item: MercadoModel):
     APP_CONFIG["mercado_actual"] = item.mercado
     db_save_all_data()
     estado_mercado = {}
+    # Retorna rápido, el update asíncrono se lanza de fondo
     threading.Thread(target=_forzar_actualizacion, daemon=True).start()
   return {"status": "ok"}
 
@@ -584,9 +590,14 @@ def dashboard():
             h1 { text-align: center; color: #38bdf8; font-size: 1.6rem; margin: 5px 0; }
             .reloj-box { text-align: center; margin-bottom: 16px; position: relative; }
             .reloj { font-weight: bold; font-size: 1rem; }
-            .reloj-sub { font-size: 0.8rem; color: #94a3b8; margin-top: 2px; }
+            .reloj-sub { font-size: 0.85rem; color: #facc15; margin-top: 2px; font-weight:bold; }
             .live-indicator { display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; margin-left: 6px; box-shadow: 0 0 8px #22c55e; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+            
+            /* LOADER CENTRADO ESTILO PROFESIONAL */
+            #pantalla-carga { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 19, 43, 0.85); backdrop-filter: blur(4px); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+            .spinner { border: 4px solid rgba(255,255,255,0.1); width: 50px; height: 50px; border-radius: 50%; border-left-color: #38bdf8; animation: spin 1s linear infinite; margin-bottom:15px; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             
             .control-panel { max-width: 1200px; margin: 0 auto 16px auto; background: #1c2541; padding: 12px; border-radius: 10px; display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; border: 1px solid #3a506b; }
             input[type="text"], input[type="number"], select { background: #0b132b; border: 1px solid #3a506b; color: #fff; padding: 8px; border-radius: 6px; font-size: 0.9rem; }
@@ -594,8 +605,8 @@ def dashboard():
             button { background: #38bdf8; color: #0b132b; border: none; padding: 8px 12px; font-weight: bold; border-radius: 6px; cursor: pointer; }
             button:hover { background: #7dd3fc; }
             
-            .btn-mercado { background: #3a506b; color: #cbd5e1; border: 1px solid #3a506b; }
-            .btn-mercado.active { background: #38bdf8; color: #0b132b; border-color: #7dd3fc; font-weight: 800; }
+            .btn-mercado { background: #3a506b; color: #cbd5e1; border: 1px solid #3a506b; transition: all 0.2s; }
+            .btn-mercado.active { background: #38bdf8; color: #0b132b; border-color: #7dd3fc; font-weight: 800; transform: scale(1.05); }
 
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; }
             @media (max-width: 900px) { .container { grid-template-columns: 1fr; } .sidebar-prioritario { order: -1; } }
@@ -612,7 +623,7 @@ def dashboard():
             
             .grid-activos.list-view .card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
             .grid-activos.list-view .card-top-toolbar { display: none; }
-            .grid-activos.list-view .card-header { margin-bottom: 0; width: 120px; }
+            .grid-activos.list-view .card-header { margin-bottom: 0; width: 150px; }
             .grid-activos.list-view .price { font-size: 1.1rem; margin-bottom: 0; width: 75px; }
             .grid-activos.list-view .entrada-ok, .grid-activos.list-view .entrada-prep, .grid-activos.list-view .entrada-wait, .grid-activos.list-view .entrada-warn, .grid-activos.list-view .entrada-rebote { margin-bottom: 0; width: 160px; text-align: center; font-size: 0.72rem; cursor: pointer; }
             .grid-activos.list-view .sparkline-container { width: 80px; height: 25px; margin-top: 0; }
@@ -621,6 +632,8 @@ def dashboard():
 
             .badge { padding: 3px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: bold; }
             .tf-badge { background: #3a506b; color: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; }
+            .flag-badge { font-size: 0.75rem; background: #0b132b; padding: 2px 5px; border-radius: 4px; border: 1px solid #3a506b; margin-right: 4px; }
+            
             .bullish { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
             .bearish { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
             
@@ -635,6 +648,7 @@ def dashboard():
             .sl-text { color: #f87171; font-weight: bold; }
             .tp-text { color: #4ade80; font-weight: bold; }
             .btn-remove { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: bold; }
+            .tv-btn { background:#2962ff; color:#fff; padding:4px 6px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.68rem; text-align:center; display:inline-block; border:1px solid #1e40af; }
             
             .sparkline-container { margin-top: 8px; background: #0b132b; padding: 4px; border-radius: 6px; border: 1px solid #3a506b; text-align: center; }
             
@@ -644,21 +658,25 @@ def dashboard():
             
             .metrics-bar { background: #0b132b; padding: 8px; border-radius: 6px; margin-bottom: 10px; display: flex; justify-content: space-around; font-size: 0.85rem; border: 1px solid #3a506b; }
             
-            #loading-banner { display: none; position: fixed; top: 15px; right: 15px; background: #f59e0b; color: #0b132b; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-
-            .manual-box { background: #0b132b; border: 1px solid #38bdf8; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 0.8rem; color: #cbd5e1; }
+            .manual-box { background: #0b132b; border: 1px solid #38bdf8; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 0.85rem; color: #cbd5e1; }
+            .manual-box details { margin-bottom: 8px; background: #1c2541; border: 1px solid #3a506b; border-radius: 6px; padding: 6px; }
+            .manual-box summary { font-weight: bold; color: #38bdf8; cursor: pointer; padding: 4px; }
+            .manual-box p, .manual-box ul { margin-top: 8px; font-size: 0.8rem; line-height: 1.4; color: #f8fafc; }
             
             .input-group { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
             .input-group label { font-size: 0.72rem; color: #38bdf8; margin-bottom: 3px; font-weight: bold; }
 
-            /* Modal General */
-            #info-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center; }
+            #info-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; }
             .modal-content { background: #1c2541; padding: 20px; border-radius: 10px; border: 1px solid #38bdf8; width: 90%; max-width: 500px; color: #f8fafc; position: relative; }
             .modal-close { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer; }
         </style>
     </head>
     <body>
-        <div id="loading-banner">🔄 <span>Sincronizando Mercado...</span></div>
+        <div id="pantalla-carga">
+            <div class="spinner"></div>
+            <h3 style="color:#38bdf8; margin:0;">Cambiando Bolsa...</h3>
+            <p style="color:#cbd5e1; font-size:0.9rem;">Sincronizando activos, historial y relojes locales.</p>
+        </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
             <div></div>
@@ -667,9 +685,9 @@ def dashboard():
         </div>
 
         <div class="reloj-box">
-            <div id="reloj-mercado" class="reloj">... <span class="live-indicator"></span></div>
-            <div id="reloj-cuenta" class="reloj-sub">...</div>
-            <div style="font-size: 0.9rem; margin-top: 5px; color: #4ade80;">Hora en Mercado: <b id="reloj-hora-mercado">--:--:--</b></div>
+            <div id="reloj-mercado" class="reloj">Cargando Horarios... <span class="live-indicator"></span></div>
+            <div id="reloj-cuenta" class="reloj-sub">--:--:--</div>
+            <div style="font-size: 0.9rem; margin-top: 5px; color: #4ade80;">Hora en Bolsa Local: <b id="reloj-hora-mercado">--:--:--</b></div>
         </div>
         
         <div class="control-panel">
@@ -697,7 +715,7 @@ def dashboard():
         <div class="container">
             <div>
                 <h3>Activos bajo Monitoreo (Orden Automático por Urgencia)</h3>
-                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Sincronizando con servidores...</p></div>
+                <div class="grid-activos" id="grid-mercado"><p style="color:#94a3b8;">⏳ Descargando base de datos...</p></div>
 
                 <div class="cartera-panel" style="margin-top: 16px;">
                     <div class="feed-title">
@@ -718,7 +736,7 @@ def dashboard():
                         <div class="input-group"><label>RIESGO USD ($)</label><input type="number" id="c-riesgo" value="50" style="width:100%;" step="any" /></div>
                         <div style="display:flex; align-items:flex-end;"><button onclick="registrarPosicion()" style="height:38px; background:#10b981; color:#fff;">Guardar</button></div>
                     </div>
-                    <div id="lista-cartera">Sin posiciones guardadas.</div>
+                    <div id="lista-cartera">Sin posiciones guardadas en esta bolsa.</div>
                 </div>
             </div>
             
@@ -734,15 +752,43 @@ def dashboard():
                 </div>
 
                 <div class="edu-panel">
-                    <div class="feed-title">📖 Manual PRO & Horarios</div>
-                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:6px; border-radius:4px; cursor:pointer;">📘 Ver / Ocultar Guía de Mercados</button>
+                    <div class="feed-title">📖 Manual PRO Integral</div>
+                    <button onclick="toggleManual()" style="width:100%; font-size:0.78rem; background:#3a506b; color:#fff; margin-bottom:8px; border:none; padding:8px; border-radius:4px; cursor:pointer; font-weight:bold;">📚 Desplegar / Ocultar Guía de Uso</button>
                     
                     <div id="box-manual" class="manual-box" style="display:none;">
-                        <b>⏰ Horarios de Sesiones Globales:</b><br>
-                        • 🇺🇸 <b>Nueva York (NYSE):</b> 09:30 a 16:00 hora NY.<br>
-                        • 🇬🇧 <b>Londres (LSE):</b> 08:00 a 16:30 hora Londres.<br>
-                        • 🇯🇵 <b>Asia (Tokio):</b> 09:00 a 15:30 hora Tokio (con receso de almuerzo 11:30-12:30).<br><br>
-                        💡 <b>Nota:</b> El escáner y los sufijos (.L / .T) se adaptan solos al mercado que elijas.
+                        <details>
+                            <summary>🎯 Estrategias y Estados</summary>
+                            <ul>
+                                <li><b>🟢 Buena Entrada:</b> El precio ha roto una resistencia clave y el volumen (dinero real) acompaña la subida. Es el momento ideal para entrar.</li>
+                                <li><b>⏳ Preparando:</b> El activo está retrocediendo saludablemente hacia un nivel de soporte (Fibonacci). No compres aún, espera el rebote.</li>
+                                <li><b>💥 Rebote en Zona:</b> Caída fuerte (sobreventa, RSI < 30) que toca un piso técnico histórico. Oportunidad de entrada rápida con SL corto.</li>
+                                <li><b>⚠️ Falso Quiebre:</b> Ruptura de precio pero sin volumen institucional. Trampa caza-bobos, evitar.</li>
+                            </ul>
+                        </details>
+                        <details>
+                            <summary>📊 Indicadores Utilizados</summary>
+                            <ul>
+                                <li><b>SMA 9 / 21:</b> Cruces de Medias Móviles para detectar impulsos. 9 > 21 es alcista.</li>
+                                <li><b>RSI (14):</b> Mide el agotamiento. >70 Sobrecomprado (peligro), <30 Sobrevendido (oportunidad).</li>
+                                <li><b>Macro (1D):</b> Filtro de seguridad que lee el gráfico diario para asegurar que no operes contra la tendencia principal.</li>
+                            </ul>
+                        </details>
+                        <details>
+                            <summary>💼 Gestión de Cartera (SL Audit)</summary>
+                            <p>La calculadora de riesgo te dice cuántas acciones comprar en base a tu Riesgo en $. Luego, el sistema audita tu SL en vivo:</p>
+                            <ul>
+                                <li><b>SL Muy Corto / Lejos:</b> Te avisa si estás arriesgando de más o de menos según la volatilidad (ATR).</li>
+                                <li><b>Sube SL a Soporte (Trailing):</b> Si vas ganando +3%, te sugiere subir el SL para asegurar la operación.</li>
+                            </ul>
+                        </details>
+                        <details>
+                            <summary>⏰ Horarios por Mercado</summary>
+                            <ul>
+                                <li>🇺🇸 <b>Nueva York (NYSE):</b> 09:30 a 16:00 hora NY.</li>
+                                <li>🇬🇧 <b>Londres (LSE):</b> 08:00 a 16:30 hora Londres.</li>
+                                <li>🇯🇵 <b>Asia (Tokio):</b> 09:00 a 15:30 hora Tokio (Receso: 11:30-12:30).</li>
+                            </ul>
+                        </details>
                     </div>
                 </div>
             </div>
@@ -763,32 +809,53 @@ def dashboard():
             let mercadoGlobalData = {};
             let catalogoGlobal = {};
             let currentTz = "America/New_York";
+            let targetTimestampGlobal = 0;
+            let prefixCuentaGlobal = "";
             let ultimaAlertaVistaId = null;
+            let mercadoEnUso = "NY";
 
-            // Reloj en VIVO de JS para la zona horaria del mercado
+            // Motor de Reloj de Alta Precisión (Javascript Puro)
             setInterval(() => {
                 if(!currentTz) return;
+                
+                // Reloj Local del Mercado (Hora en la Bolsa)
                 const options = { timeZone: currentTz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-                try {
-                    const timeString = new Intl.DateTimeFormat('es-ES', options).format(new Date());
-                    document.getElementById('reloj-hora-mercado').innerText = timeString;
-                } catch(e) {}
+                try { document.getElementById('reloj-hora-mercado').innerText = new Intl.DateTimeFormat('es-ES', options).format(new Date()); } catch(e) {}
+                
+                // Cuenta regresiva ultra-precisa
+                if(targetTimestampGlobal > 0) {
+                    const ahoraMs = Date.now();
+                    let diffMs = (targetTimestampGlobal * 1000) - ahoraMs;
+                    if(diffMs < 0) diffMs = 0;
+                    
+                    const totalSeg = Math.floor(diffMs / 1000);
+                    const dias = Math.floor(totalSeg / 86400);
+                    const horas = Math.floor((totalSeg % 86400) / 3600);
+                    const minutos = Math.floor((totalSeg % 3600) / 60);
+                    const segundos = totalSeg % 60;
+                    
+                    let cuentaStr = `${prefixCuentaGlobal} en `;
+                    if(dias > 0) cuentaStr += `${dias}d `;
+                    cuentaStr += `${horas}h ${minutos}m ${segundos}s`;
+                    
+                    document.getElementById('reloj-cuenta').innerText = cuentaStr;
+                }
             }, 1000);
 
             const explicacionesEstados = {
-                "BUENA ENTRADA": { titulo: "🟢 Buena Entrada", porque: "Superó resistencia con volumen.", resultado: "Compradores en control.", queHacer: "Operar." },
-                "PREPARANDO": { titulo: "⏳ Preparando", porque: "Retrocediendo a zona de soporte sano.", resultado: "Descanso del precio.", queHacer: "Vigilar soporte." },
-                "REBOTE EN ZONA": { titulo: "💥 Rebote en Zona", porque: "Tocó piso técnico en sobreventa.", resultado: "Posible giro alcista rápido.", queHacer: "Operar con SL ajustado." },
-                "FALSO QUIEBRE": { titulo: "⚠️ Falso Quiebre", porque: "Rompió alza sin volumen real.", resultado: "Trampa de mercado.", queHacer: "No operar." },
-                "SOBRECOMPRADO": { titulo: "⚠️ Sobrecomprado", porque: "Subió muy rápido.", resultado: "Riesgo de corrección.", queHacer: "Evitar compras nuevas." },
-                "SOBREVENDIDO": { titulo: "📉 Sobrevendido", porque: "Caída vertical.", resultado: "Aún sin frenos.", queHacer: "Esperar vela de giro." },
-                "ESPERAR": { titulo: "⏳ Esperar", porque: "Zona neutral.", resultado: "Lateralidad.", queHacer: "No hacer nada." }
+                "BUENA ENTRADA": { titulo: "🟢 Buena Entrada", porque: "Superó resistencia con volumen real.", resultado: "Compradores en control.", queHacer: "Operar usando la calculadora." },
+                "PREPARANDO": { titulo: "⏳ Preparando", porque: "Retrocediendo a zona de soporte sano (Fibonacci).", resultado: "Descanso del precio.", queHacer: "Vigilar soporte para entrar en el rebote." },
+                "REBOTE EN ZONA": { titulo: "💥 Rebote en Zona", porque: "Tocó piso técnico extremo en sobreventa.", resultado: "Posible giro alcista rápido.", queHacer: "Oportunidad agresiva. Usar SL ajustado." },
+                "FALSO QUIEBRE": { titulo: "⚠️ Falso Quiebre", porque: "Rompió alza sin volumen de respaldo.", resultado: "Trampa de mercado.", queHacer: "No operar. Ignorar." },
+                "SOBRECOMPRADO": { titulo: "⚠️ Sobrecomprado", porque: "Subió muy rápido verticalmente.", resultado: "Riesgo extremo de toma de ganancias.", queHacer: "Evitar compras nuevas." },
+                "SOBREVENDIDO": { titulo: "📉 Sobrevendido", porque: "Caída vertical severa.", resultado: "Aún sin frenos ni suelo confirmado.", queHacer: "Esperar vela de giro técnico." },
+                "ESPERAR": { titulo: "⏳ Esperar", porque: "Zona neutral media.", resultado: "Lateralidad y ruido.", queHacer: "Observar otros activos." }
             };
 
             function solicitarPermisoNotificaciones() {
                 if (!("Notification" in window)) return;
                 Notification.requestPermission().then(p => {
-                    if(p === "granted") new Notification("Trading Monitor Pro", {body: "¡Notificaciones activadas!"});
+                    if(p === "granted") new Notification("Trading Monitor Pro", {body: "¡Notificaciones activadas con éxito!"});
                 });
             }
 
@@ -810,29 +877,44 @@ def dashboard():
             }
 
             async function cambiarMercado(mercado) {
-                mostrarBannerCarga(true);
+                // UI: Cambio inmediato y pantalla de carga
+                document.getElementById('pantalla-carga').style.display = 'flex';
+                document.getElementById('grid-mercado').innerHTML = '';
+                document.getElementById('lista-alertas').innerHTML = '';
+                document.getElementById('lista-sugerencias').innerHTML = '';
+                
+                // Petición no bloqueante
                 await fetch('/api/mercado', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mercado: mercado }) });
-                document.getElementById('grid-mercado').innerHTML = '<p style="color:#94a3b8;">⏳ Sincronizando con bolsa...</p>';
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                
+                // Pequeño delay artificial para asegurar que el backend arrancó el hilo
+                setTimeout(async () => {
+                    await actualizarApp();
+                    document.getElementById('pantalla-carga').style.display = 'none';
+                }, 1000);
+            }
+
+            function formatearLinkTV(ticker, mercado) {
+                let sym = ticker;
+                if(mercado === 'LONDRES') sym = 'LSE:' + ticker.replace('.L', '');
+                else if(mercado === 'ASIA') sym = 'TSE:' + ticker.replace('.T', '');
+                return `https://www.tradingview.com/chart/?symbol=${sym}`;
             }
 
             function mostrarModal(ticker) {
-                const info = mercadoGlobalData[ticker] || (catalogoGlobal[ticker] ? { nombre: catalogoGlobal[ticker].nombre, descripcion: catalogoGlobal[ticker].desc, estrategia_explicacion: catalogoGlobal[ticker].estrategia } : { nombre: ticker, descripcion: "Activo detectado por volatilidad.", estrategia_explicacion: "Monitoreo técnico."});
+                const info = mercadoGlobalData[ticker] || (catalogoGlobal[ticker] ? { nombre: catalogoGlobal[ticker].nombre, descripcion: catalogoGlobal[ticker].desc, estrategia_explicacion: catalogoGlobal[ticker].estrategia } : { nombre: ticker, descripcion: "Activo detectado por volatilidad extrema.", estrategia_explicacion: "Monitoreo técnico base."});
                 document.getElementById('modal-titulo').innerText = `${ticker} - ${info.nombre}`;
-                document.getElementById('modal-body-content').innerHTML = `<p><b>Contexto:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${info.descripcion}</p><p><b>Estrategia:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${info.estrategia_explicacion}</p>`;
+                document.getElementById('modal-body-content').innerHTML = `<p><b>Contexto:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${info.descripcion}</p><p><b>Estrategia de Operación:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${info.estrategia_explicacion}</p>`;
                 document.getElementById('info-modal').style.display = 'flex';
             }
 
             function mostrarExplicacionEstado(claveEstado) {
-                let enc = Object.entries(explicacionesEstados).find(([k, v]) => claveEstado.toUpperCase().includes(k))?.[1] || {titulo: "ℹ️ Estado", porque: "Evaluación en proceso", resultado: "-", queHacer: "Vigilar soportes."};
+                let enc = Object.entries(explicacionesEstados).find(([k, v]) => claveEstado.toUpperCase().includes(k))?.[1] || {titulo: "ℹ️ Evaluación Técnica", porque: "Sistema procesando velas.", resultado: "Lectura activa.", queHacer: "Vigilar niveles."};
                 document.getElementById('modal-titulo').innerText = enc.titulo;
-                document.getElementById('modal-body-content').innerHTML = `<p><b>¿Por qué?</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${enc.porque}</p><p><b>Resultado:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${enc.resultado}</p><p><b>Acción:</b></p><p style="color:#4ade80; font-weight:bold;">👉 ${enc.queHacer}</p>`;
+                document.getElementById('modal-body-content').innerHTML = `<p><b>Diagnóstico:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${enc.porque}</p><p><b>Resultado:</b></p><p style="color:#cbd5e1; font-size:0.85rem;">${enc.resultado}</p><p><b>Acción Sugerida:</b></p><p style="color:#4ade80; font-weight:bold;">👉 ${enc.queHacer}</p>`;
                 document.getElementById('info-modal').style.display = 'flex';
             }
 
             function cerrarModal() { document.getElementById('info-modal').style.display = 'none'; }
-            function mostrarBannerCarga(mostrar) { document.getElementById('loading-banner').style.display = mostrar ? 'block' : 'none'; }
 
             function iniciarSSE() {
                 if (!!window.EventSource) {
@@ -842,22 +924,22 @@ def dashboard():
             }
 
             async function cambiarTimeframe(tf) {
-                mostrarBannerCarga(true);
+                document.getElementById('pantalla-carga').style.display = 'flex';
                 await fetch('/api/timeframe', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ timeframe: tf }) });
-                document.getElementById('grid-mercado').innerHTML = '<p style="color:#94a3b8;">⏳ Recalculando marcos temporales...</p>';
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                setTimeout(async () => {
+                    await actualizarApp();
+                    document.getElementById('pantalla-carga').style.display = 'none';
+                }, 800);
             }
 
             async function agregarActivo(tickerParam = null) {
                 const input = document.getElementById('new-ticker');
                 const ticker = tickerParam || input.value.trim();
                 if (!ticker) return;
-                mostrarBannerCarga(true);
+                document.getElementById('pantalla-carga').style.display = 'flex';
                 await fetch('/api/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ticker: ticker }) });
                 if(!tickerParam) input.value = '';
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                setTimeout(async () => { await actualizarApp(); document.getElementById('pantalla-carga').style.display = 'none'; }, 800);
             }
 
             function usarParaOperar(ticker, precio, sl, tp) {
@@ -869,10 +951,9 @@ def dashboard():
             }
 
             async function eliminarActivo(ticker) {
-                mostrarBannerCarga(true);
+                document.getElementById('pantalla-carga').style.display = 'flex';
                 await fetch('/api/remove', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ticker: ticker }) });
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                setTimeout(async () => { await actualizarApp(); document.getElementById('pantalla-carga').style.display = 'none'; }, 500);
             }
 
             async function registrarPosicion() {
@@ -884,22 +965,20 @@ def dashboard():
                 const tf = document.getElementById('select-tf').value;
                 if (!ticker || isNaN(precio) || isNaN(sl) || isNaN(tp)) return;
 
-                mostrarBannerCarga(true);
+                document.getElementById('pantalla-carga').style.display = 'flex';
                 await fetch('/api/cartera/add', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ ticker: ticker, precio_compra: precio, sl_usuario: sl, tp_usuario: tp, riesgo_usd: riesgo, timeframe: tf })
                 });
                 document.getElementById('c-ticker').value = ''; document.getElementById('c-precio').value = '';
                 document.getElementById('c-sl').value = ''; document.getElementById('c-tp').value = '';
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                setTimeout(async () => { await actualizarApp(); document.getElementById('pantalla-carga').style.display = 'none'; }, 800);
             }
 
             async function eliminarPosicion(ticker) {
-                mostrarBannerCarga(true);
+                document.getElementById('pantalla-carga').style.display = 'flex';
                 await fetch('/api/cartera/remove', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ticker: ticker }) });
-                await actualizarApp();
-                mostrarBannerCarga(false);
+                setTimeout(async () => { await actualizarApp(); document.getElementById('pantalla-carga').style.display = 'none'; }, 500);
             }
 
             function obtenerPuntajeUrgencia(ticker) {
@@ -912,17 +991,22 @@ def dashboard():
             async function actualizarApp() {
                 try {
                     const res = await fetch('/api/data');
-                    const { mercado, alertas, cartera, timeframe, mercado_actual, horario, cuenta_regresiva, timezone, sugerencias, catalogo, activos_orden } = await res.json();
+                    const data = await res.json();
                     
-                    document.getElementById('select-tf').value = timeframe;
-                    ordenActivosGlobal = activos_orden || [];
-                    mercadoGlobalData = mercado || {};
-                    catalogoGlobal = catalogo || {};
-                    currentTz = timezone; // Actualizar reloj JS dinámico
+                    mercadoEnUso = data.mercado_actual;
+                    document.getElementById('select-tf').value = data.timeframe;
+                    ordenActivosGlobal = data.activos_orden || [];
+                    mercadoGlobalData = data.mercado || {};
+                    catalogoGlobal = data.catalogo || {};
+                    
+                    // Reloj Engine Params
+                    currentTz = data.timezone;
+                    targetTimestampGlobal = data.target_ts;
+                    prefixCuentaGlobal = data.prefix_cuenta;
 
                     ['NY', 'LONDRES', 'ASIA'].forEach(m => {
                         const btn = document.getElementById(`btn-mercado-${m}`);
-                        if(btn) btn.classList.toggle('active', m === mercado_actual);
+                        if(btn) btn.classList.toggle('active', m === mercadoEnUso);
                     });
 
                     if(ordenActivosGlobal.length > 0 && Object.keys(mercadoGlobalData).length > 0) {
@@ -930,18 +1014,19 @@ def dashboard():
                     }
                     
                     const datalist = document.getElementById('datalist-tickers');
-                    if(datalist.children.length === 0 && catalogo) {
-                        for(const [t, desc] of Object.entries(catalogo)) {
+                    if(datalist.children.length === 0 && data.catalogo) {
+                        for(const [t, desc] of Object.entries(data.catalogo)) {
                             const opt = document.createElement('option');
                             opt.value = t; opt.textContent = desc.nombre;
                             datalist.appendChild(opt);
                         }
                     }
 
-                    document.getElementById('reloj-mercado').innerHTML = `${horario} <span class="live-indicator"></span>`;
-                    document.getElementById('reloj-cuenta').innerHTML = `${cuenta_regresiva}`;
+                    document.getElementById('reloj-mercado').innerHTML = `${data.estado_horario} <span class="live-indicator"></span>`;
 
-                    if (alertas && alertas.length > 0) {
+                    // Alertas
+                    const alertas = data.alertas || [];
+                    if (alertas.length > 0) {
                         const ultima = alertas[0];
                         const idUnico = ultima.symbol + "_" + ultima.hora + "_" + ultima.precio;
                         if (ultimaAlertaVistaId !== null && ultimaAlertaVistaId !== idUnico) {
@@ -950,8 +1035,10 @@ def dashboard():
                         ultimaAlertaVistaId = idUnico;
                     }
 
+                    // Cartera
                     let capitalTotal = 0, pnlSuma = 0;
                     const divCartera = document.getElementById('lista-cartera');
+                    const cartera = data.cartera || [];
                     if (cartera.length > 0) {
                         divCartera.innerHTML = '';
                         cartera.forEach(p => {
@@ -963,7 +1050,7 @@ def dashboard():
                             divCartera.innerHTML += `
                                 <div class="alerta-item" style="border-left-color: ${pnlColor};">
                                     <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.9rem;">
-                                        <span>${p.ticker} (${p.timeframe.toUpperCase()})</span>
+                                        <span><span class="flag-badge">${p.bandera}</span> ${p.ticker} (${p.timeframe.toUpperCase()})</span>
                                         <span style="color:${pnlColor};">${p.pnl_porcentaje >= 0 ? '+' : ''}${p.pnl_porcentaje}%</span>
                                         <button onclick="eliminarPosicion('${p.ticker}')" style="background:none;color:#ef4444;border:none;cursor:pointer;">✕</button>
                                     </div>
@@ -975,42 +1062,51 @@ def dashboard():
                         const pnlPromedio = (pnlSuma / cartera.length).toFixed(2);
                         document.getElementById('resumen-cartera').innerHTML = `<span>Capital: <b>$${capitalTotal.toFixed(2)}</b></span><span>Rendimiento: <b style="color:${pnlPromedio >= 0 ? '#4ade80' : '#f87171'}">${pnlPromedio >= 0 ? '+' : ''}${pnlPromedio}%</b></span>`;
                     } else { 
-                        divCartera.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones.</span>`;
+                        divCartera.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin posiciones guardadas.</span>`;
                         document.getElementById('resumen-cartera').innerHTML = `<span>Capital: <b>$0.00</b></span><span>Rendimiento: <b>0.00%</b></span>`;
                     }
 
+                    // Escaner
                     const divSug = document.getElementById('lista-sugerencias');
-                    if(sugerencias && sugerencias.length > 0) {
+                    const sugerencias = data.sugerencias || [];
+                    if(sugerencias.length > 0) {
                         divSug.innerHTML = sugerencias.map(s => {
                             const badgeStyle = s.estado.includes("REBOTE") ? "color:#c084fc;" : "color:#4ade80;";
+                            const tvLink = formatearLinkTV(s.ticker, mercadoEnUso);
                             return `
                                 <div style="background:#0b132b; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #3a506b;">
-                                    <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;">⭐ ${s.ticker} a $${s.precio}</div>
+                                    <div style="font-weight:bold; ${badgeStyle} font-size:0.85rem;"><span class="flag-badge">${s.bandera}</span> ${s.ticker} a $${s.precio}</div>
                                     <div style="font-size:0.75rem; color:#facc15; margin: 2px 0; cursor:pointer;" onclick="mostrarExplicacionEstado('${s.estado}')">📌 <span style="text-decoration:underline;">${s.estado}</span> 🔍</div>
                                     <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                                         <button onclick="agregarActivo('${s.ticker}')" style="font-size:0.68rem; padding:4px 6px;">+ Seguir</button>
                                         <button onclick="usarParaOperar('${s.ticker}', ${s.precio}, ${s.sl}, ${s.tp})" style="font-size:0.68rem; padding:4px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                        <a href="${tvLink}" target="_blank" class="tv-btn">📈 TV</a>
                                     </div>
                                 </div>`;
                         }).join('');
-                    } else { divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Buscando...</span>`; }
+                    } else { divSug.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Buscando oportunidades en ${mercadoEnUso}...</span>`; }
 
                     renderizarGridMercado();
 
+                    // Lista de Alertas
                     const lista = document.getElementById('lista-alertas');
                     if (alertas.length > 0) {
-                        lista.innerHTML = alertas.map(a => `
+                        lista.innerHTML = alertas.map(a => {
+                            const tvLink = formatearLinkTV(a.symbol, mercadoEnUso);
+                            return `
                             <div class="alerta-item">
                                 <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:0.85rem;">
-                                    <span>${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
+                                    <span><span class="flag-badge">${a.bandera}</span> ${a.symbol} - $${a.precio}</span><span style="font-size:0.70rem; color:#64748b;">${a.hora}</span>
                                 </div>
                                 <div style="font-size:0.78rem; margin-top:3px; cursor:pointer;" onclick="mostrarExplicacionEstado('${a.evento}')">🔔 <span style="text-decoration:underline;">${a.evento}</span> 🔍</div>
                                 <div style="display:flex; gap:6px; margin-top:6px;">
                                     <button onclick="agregarActivo('${a.symbol}')" style="font-size:0.68rem; padding:3px 6px;">+ Seguir</button>
-                                    <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Operar</button>
+                                    <button onclick="usarParaOperar('${a.symbol}', ${a.precio}, ${a.sl || 0}, ${a.tp || 0})" style="font-size:0.68rem; padding:3px 6px; background:#10b981; color:#fff;">💼 Op</button>
+                                    <a href="${tvLink}" target="_blank" class="tv-btn" style="padding: 3px 6px;">📈 TV</a>
                                 </div>
-                            </div>`).join('');
-                    } else { lista.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin alertas.</span>`; }
+                            </div>`;
+                        }).join('');
+                    } else { lista.innerHTML = `<span style="font-size:0.8rem; color:#94a3b8;">Sin alertas en ${mercadoEnUso}.</span>`; }
                 } catch (e) {}
             }
 
@@ -1026,11 +1122,13 @@ def dashboard():
                         else if (info.estado_entrada.includes("PREPARANDO")) claseEntrada = 'entrada-prep';
                         else if (info.estado_entrada.includes("REBOTE")) claseEntrada = 'entrada-rebote';
 
+                        const tvLink = formatearLinkTV(ticker, mercadoEnUso);
+
                         if(modoLista) {
                             return `
                                 <div class="card">
-                                    <div class="card-header" style="margin-bottom:0; width:120px;">
-                                        <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
+                                    <div class="card-header" style="margin-bottom:0; width:170px;">
+                                        <span class="ticker"><span class="flag-badge">${info.bandera}</span> ${ticker} <span class="tf-badge">${info.timeframe}</span></span>
                                     </div>
                                     <div class="price" style="width:75px;">$${info.precio}</div>
                                     <div class="${claseEntrada}" style="width:160px;" onclick="mostrarExplicacionEstado('${info.estado_entrada}')">${info.estado_entrada} 🔍</div>
@@ -1040,7 +1138,8 @@ def dashboard():
                                         </svg>
                                     </div>
                                     <div class="list-actions-bar">
-                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.68rem; background:#10b981; color:#fff; padding:4px 6px;">💼 Operar</button>
+                                        <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="font-size:0.68rem; background:#10b981; color:#fff; padding:4px 6px;">💼 Op</button>
+                                        <a href="${tvLink}" target="_blank" class="tv-btn">📈 TV</a>
                                         <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.68rem; padding:4px 6px;">ℹ️</button>
                                         <button class="btn-remove" onclick="eliminarActivo('${ticker}')">✕</button>
                                     </div>
@@ -1053,7 +1152,7 @@ def dashboard():
                                         <button class="btn-remove" onclick="eliminarActivo('${ticker}')">✕ Eliminar</button>
                                     </div>
                                     <div class="card-header">
-                                        <span class="ticker">${ticker} <span class="tf-badge">${info.timeframe}</span></span>
+                                        <span class="ticker"><span class="flag-badge">${info.bandera}</span> ${ticker} <span class="tf-badge">${info.timeframe}</span></span>
                                         <span class="badge ${info.tendencia === 'ALZA' ? 'bullish' : 'bearish'}">${info.tendencia}</span>
                                     </div>
                                     <div class="price">$${info.precio}</div>
@@ -1071,13 +1170,14 @@ def dashboard():
                                     </div>
                                     <div style="display:flex; gap:6px; margin-top:8px;">
                                         <button onclick="usarParaOperar('${ticker}', ${info.precio}, ${info.soporte_tecnico}, ${info.tp_tecnico})" style="flex:1; font-size:0.72rem; background:#10b981; color:#fff; padding:5px;">💼 Operar</button>
+                                        <a href="${tvLink}" target="_blank" class="tv-btn" style="flex:1;">📈 TV</a>
                                         <button onclick="mostrarModal('${ticker}')" style="background:#3a506b; color:#fff; font-size:0.72rem; padding:4px 6px;">ℹ️ Info</button>
                                     </div>
                                 </div>`;
                         }
                     }).join('');
                 } else {
-                    grid.innerHTML = `<p style="color:#94a3b8;">Sin activos o cargando...</p>`;
+                    grid.innerHTML = `<p style="color:#94a3b8;">Aún no se han procesado los precios.</p>`;
                 }
             }
 
